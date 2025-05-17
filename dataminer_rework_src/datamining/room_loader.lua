@@ -1,16 +1,6 @@
 ---@class RoomLoader
 local RoomLoader = {}
 
----@class VirtualRoom
----@field roomDescriptor RoomDescriptor
----@field roomType RoomType
----@field roomIdx GridRooms | integer
----@field width integer
----@field height integer
----@field doorGridIdx integer[]
----@field tintedRockIdx integer
----@field layoutData LayoutData
-
 ---@class LayoutData
 ---@field entities EntitySpawnDesc[]
 ---@field gridEntities GridSpawnDesc[]
@@ -24,42 +14,12 @@ local g_RoomConfig = RoomConfig
 
 local Lib = {
     Level = require("dataminer_rework_src.lib.level"),
-    Room = require("dataminer_rework_src.lib.room"),
     RoomConfig = require("dataminer_rework_src.lib.room_config")
 }
 
+local SpawnReader = require("dataminer_rework_src.datamining.spawn_reader")
+
 --#endregion
-
-local function NewVirtualRoom()
-    ---@type VirtualRoom
-    local virtualRoom = {
----@diagnostic disable-next-line: assign-type-mismatch
-        roomDescriptor = nil,
-        roomType = RoomType.ROOM_DEFAULT,
-        roomIdx = 0,
-        width = 0,
-        height = 0,
-        doorGridIdx = {},
-        tintedRockIdx = -1,
-        layoutData = {entities = {}, gridEntities = {}}
-    }
-end
-
----@param virtualRoom VirtualRoom
----@param roomDesc RoomDescriptor
----@param roomData RoomConfigRoom
-local function InitRoomData(virtualRoom, roomDesc, roomData)
-    virtualRoom.width = roomData.Width + 2
-    virtualRoom.height = roomData.Height + 2
-
-    for i = 1, DoorSlot.NUM_DOOR_SLOTS, 1 do
-        virtualRoom.doorGridIdx[i] = Lib.Room.GetDoorGridIndex(i - 1, virtualRoom.width, virtualRoom.height, roomDesc.Data.Shape)
-    end
-
-    virtualRoom.roomDescriptor = roomDesc
-    virtualRoom.roomType = roomDesc.Data.Type
-    virtualRoom.roomIdx = roomDesc.SafeGridIndex
-end
 
 --#region GetRoomData
 
