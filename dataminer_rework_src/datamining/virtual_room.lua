@@ -3,12 +3,12 @@ local VirtualRoom = {}
 
 --#region Dependencies
 
-local g_ItemPool = Game():GetItemPool()
-
 local Lib = {
     Room = require("dataminer_rework_src.lib.room"),
     ItemPool = require("dataminer_rework_src.lib.itempool")
 }
+
+local VirtualShop = require("dataminer_rework_src.datamining.virtual_shop")
 
 --#endregion
 
@@ -20,9 +20,11 @@ local Lib = {
 ---@field width integer
 ---@field height integer
 ---@field doorGridIdx integer[]
+---@field awardSeed integer
 ---@field tintedRockIdx integer
 ---@field layoutData LayoutData
 ---@field damoclesItemSpawned boolean
+---@field shop VirtualShop
 
 ---@return VirtualRoom
 local function NewVirtualRoom()
@@ -36,10 +38,15 @@ local function NewVirtualRoom()
         width = 0,
         height = 0,
         doorGridIdx = {},
+        awardSeed = 0,
         tintedRockIdx = -1,
         layoutData = {entities = {}, gridEntities = {}},
-        damoclesItemSpawned = false
+        damoclesItemSpawned = false,
+---@diagnostic disable-next-line: assign-type-mismatch
+        shop = nil
     }
+
+    virtualRoom.shop = VirtualShop.NewVirtualShop(virtualRoom)
 
     return virtualRoom
 end
@@ -63,6 +70,8 @@ local function InitRoomData(virtualRoom, roomDesc, roomData)
     virtualRoom.roomDescriptor = roomDesc
     virtualRoom.roomType = roomDesc.Data.Type
     virtualRoom.roomIdx = roomDesc.SafeGridIndex
+    virtualRoom.awardSeed = roomDesc.AwardSeed
+    virtualRoom.shop = VirtualShop.NewVirtualShop(virtualRoom)
 end
 
 ---@param virtualRoom VirtualRoom
@@ -70,12 +79,7 @@ end
 ---@param advanceRNG boolean
 ---@return CollectibleType | integer
 local function GetSeededCollectible(virtualRoom, seed, advanceRNG)
-    local poolType = Lib.ItemPool.GetPoolForRoom(seed, virtualRoom.roomDescriptor, 0)
-    if poolType == ItemPoolType.POOL_NULL then
-        poolType = ItemPoolType.POOL_TREASURE
-    end
-
-    return g_ItemPool:GetCollectible(poolType, not advanceRNG, seed, CollectibleType.COLLECTIBLE_NULL)
+    return Lib.ItemPool.GetSeededCollectible(virtualRoom.roomDescriptor, seed, advanceRNG)
 end
 
 local function GetFrameCount(virtualRoom)

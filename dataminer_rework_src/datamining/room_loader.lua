@@ -103,6 +103,7 @@ local function get_random_surprise_miniboss_data(roomDesc, roomData, seed)
     local roomSubType = get_surprise_miniboss_id(roomDesc, roomData)
 
     local reduceWeight = false -- this would normally be true but since we are predicting we cannot reduce the weight
+---@diagnostic disable-next-line: undefined-field
     return g_RoomConfig.GetRandomRoom(rng:Next(), reduceWeight, StbType.SPECIAL_ROOMS, RoomType.ROOM_MINIBOSS, roomData.Shape, 0, -1, 1, 1, roomData.Doors, roomSubType, 0)
 end
 
@@ -180,7 +181,7 @@ local function get_spawn_desc(virtualRoom, roomDesc, roomData, spawn, rng)
         return
     end
 
-    return -- TODO
+    return SpawnReader.BuildSpawnDesc(virtualRoom, roomDesc, roomData, gridIdx, spawnEntry, rng:GetSeed(), false)
 end
 
 ---@param virtualRoom VirtualRoom
@@ -196,6 +197,16 @@ local function GetRoomLayoutData(virtualRoom, roomDesc, roomData)
 
     for i = 0, roomData.SpawnCount, 1 do
         local spawnDesc = get_spawn_desc(virtualRoom, roomDesc, roomData, spawns:Get(i), rng)
+        if not spawnDesc then
+            goto continue
+        end
+
+        if spawnDesc.spawnType == 1 then
+            table.insert(layoutData.entities, spawnDesc.entityDesc)
+        elseif spawnDesc.spawnType == 2 then
+            table.insert(layoutData.gridEntities, spawnDesc.entityDesc)
+        end
+        ::continue::
     end
 
     return layoutData

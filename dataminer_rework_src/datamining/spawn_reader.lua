@@ -37,6 +37,7 @@ local GRID_FIREPLACE_RED = 1401
 local g_Game = Game()
 local g_Level = g_Game:GetLevel()
 local g_PlayerManager = PlayerManager
+---@diagnostic disable-next-line: undefined-global
 local g_BossPool = BossPoolManager
 local g_Seeds = g_Game:GetSeeds()
 local g_PersistentGameData = Isaac.GetPersistentGameData()

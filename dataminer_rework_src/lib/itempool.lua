@@ -107,9 +107,23 @@ local function GetPoolForRoom(seed, roomDesc, boss)
     return g_ItemPool:GetPoolForRoom(roomType, seed)
 end
 
+---@param roomDescriptor RoomDescriptor
+---@param seed integer
+---@param advanceRNG boolean
+---@return CollectibleType | integer
+local function GetSeededCollectible(roomDescriptor, seed, advanceRNG)
+    local poolType = GetPoolForRoom(seed, roomDescriptor, 0)
+    if poolType == ItemPoolType.POOL_NULL then
+        poolType = ItemPoolType.POOL_TREASURE
+    end
+
+    return g_ItemPool:GetCollectible(poolType, not advanceRNG, seed, CollectibleType.COLLECTIBLE_NULL)
+end
+
 --#region Module
 
 Lib_ItemPool.GetPoolForRoom = GetPoolForRoom
+Lib_ItemPool.GetSeededCollectible = GetSeededCollectible
 
 --#endregion
 
