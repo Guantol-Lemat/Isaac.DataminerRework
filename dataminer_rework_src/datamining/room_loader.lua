@@ -41,6 +41,7 @@ local SpawnReader = require("datamining.spawn_reader")
 ---@field m_RestrictedGridIndexes table<integer, boolean>
 
 ---@param roomDesc RoomDescriptor
+---@return VirtualRoomDescriptor
 local function CreateVirtualRoomDescriptor(roomDesc)
     ---@type VirtualRoomDescriptor
     local virtualRoomDesc = {
@@ -70,6 +71,27 @@ local function CreateVirtualRoomDescriptor(roomDesc)
     end
 
     return virtualRoomDesc
+end
+
+local s_ActiveVirtualRoomDescriptors = setmetatable({}, { __mode = "k" })
+local function count_active_virtual_room_descriptors()
+    local count = 0
+    for _ in pairs(s_ActiveVirtualRoomDescriptors) do
+        count = count + 1
+    end
+    return count
+end
+
+---Record created object to check for memory leaks
+if DATAMINER_DEBUG_MODE then
+    local old_create_virtual_room_descriptor = CreateVirtualRoomDescriptor
+    ---@param roomDesc RoomDescriptor
+    ---@return VirtualRoomDescriptor
+    CreateVirtualRoomDescriptor = function(roomDesc)
+        local virtualRoomDesc = old_create_virtual_room_descriptor(roomDesc)
+        s_ActiveVirtualRoomDescriptors[virtualRoomDesc] = true
+        return virtualRoomDesc
+    end
 end
 
 ---@param roomDesc VirtualRoomDescriptor
@@ -481,6 +503,10 @@ RoomLoader.InitRoomData = InitRoomData
 RoomLoader.InitializeDevilAngelRoom = InitializeDevilAngelRoom
 RoomLoader.LoadRoomLayoutData = LoadRoomLayoutData
 RoomLoader.ResolveDoorTarget = ResolveDoorTarget
+
+if DATAMINER_DEBUG_MODE then
+    RoomLoader.count_active_virtual_room_descriptors = count_active_virtual_room_descriptors
+end
 
 --#endregion
 

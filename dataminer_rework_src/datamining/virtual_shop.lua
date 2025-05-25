@@ -50,6 +50,27 @@ local function CreateVirtualShop(virtualRoom)
     return shop
 end
 
+local s_ActiveVirtualShops = setmetatable({}, { __mode = "k" })
+local function count_active_virtual_shops()
+    local count = 0
+    for _ in pairs(s_ActiveVirtualShops) do
+        count = count + 1
+    end
+    return count
+end
+
+---Record created object to check for memory leaks
+if DATAMINER_DEBUG_MODE then
+    local old_create_virtual_room = CreateVirtualShop
+    ---@param virtualRoom VirtualRoom
+    ---@return VirtualShop
+    CreateVirtualShop = function(virtualRoom)
+        local virtualShop = old_create_virtual_room(virtualRoom)
+        s_ActiveVirtualShops[virtualShop] = true
+        return virtualShop
+    end
+end
+
 ---@param roomData RoomConfigRoom
 ---@return boolean
 local function is_keeper_shop(roomData)
@@ -956,6 +977,10 @@ VirtualShop.GetShopItem = GetShopItem
 VirtualShop.GetShopItemPrice = GetShopItemPrice
 VirtualShop.TryGetShopDiscount = TryGetShopDiscount
 VirtualShop.MakeShopItem = MakeShopItem
+
+if DATAMINER_DEBUG_MODE then
+    VirtualShop.count_active_virtual_shops = count_active_virtual_shops
+end
 
 --#endregion
 

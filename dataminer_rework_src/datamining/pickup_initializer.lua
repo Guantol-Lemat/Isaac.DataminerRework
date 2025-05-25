@@ -61,6 +61,26 @@ local function CreateVirtualPickup()
     return virtualPickup
 end
 
+local s_ActiveVirtualPickups = setmetatable({}, { __mode = "k" })
+local function count_active_virtual_pickups()
+    local count = 0
+    for _ in pairs(s_ActiveVirtualPickups) do
+        count = count + 1
+    end
+    return count
+end
+
+---Record created object to check for memory leaks
+if DATAMINER_DEBUG_MODE then
+    local old_create_virtual_pickup = CreateVirtualPickup
+    ---@return VirtualPickup
+    CreateVirtualPickup = function()
+        local pickup = old_create_virtual_pickup()
+        s_ActiveVirtualPickups[pickup] = true
+        return pickup
+    end
+end
+
 local s_IgnoreModifiers = 0
 
 ---@return boolean
@@ -1248,6 +1268,10 @@ PickupInitializer.should_do_wait_what_morph = should_do_wait_what_morph
 PickupInitializer.build_collectible_cycle = build_collectible_cycle
 PickupInitializer.should_glitch_collectible = should_glitch_collectible
 PickupInitializer.should_force_price = should_force_price
+
+if DATAMINER_DEBUG_MODE then
+    PickupInitializer.count_active_virtual_pickups = count_active_virtual_pickups
+end
 
 --#endregion
 

@@ -60,6 +60,26 @@ local function Create()
     return virtualRoom
 end
 
+local s_ActiveVirtualRooms = setmetatable({}, { __mode = "k" })
+local function count_active_virtual_rooms()
+    local count = 0
+    for _ in pairs(s_ActiveVirtualRooms) do
+        count = count + 1
+    end
+    return count
+end
+
+---Record created object to check for memory leaks
+if DATAMINER_DEBUG_MODE then
+    local old_create_virtual_room = Create
+    ---@return VirtualRoom
+    Create = function()
+        local virtualRoom = old_create_virtual_room()
+        s_ActiveVirtualRooms[virtualRoom] = true
+        return virtualRoom
+    end
+end
+
 ---@param virtualRoom VirtualRoom
 ---@param roomDesc VirtualRoomDescriptor
 ---@param roomData RoomConfigRoom
@@ -162,6 +182,10 @@ end
 VirtualRoom.CreateVirtualRoom = Create
 VirtualRoom.InitRoom = InitRoom
 VirtualRoom.Update = Update
+
+if DATAMINER_DEBUG_MODE then
+    VirtualRoom.count_active_virtual_rooms = count_active_virtual_rooms
+end
 
 --#endregion
 
