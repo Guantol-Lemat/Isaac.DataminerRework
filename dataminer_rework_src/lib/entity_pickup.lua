@@ -6,7 +6,7 @@ local Lib_EntityPickup = {}
 local g_Seeds = Game():GetSeeds()
 
 local Lib = {
-    Table = require("dataminer_rework_src.lib.table")
+    Table = require("lib.table")
 }
 
 --#endregion

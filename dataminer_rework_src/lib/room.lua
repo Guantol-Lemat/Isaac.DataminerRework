@@ -5,13 +5,24 @@ local Lib_Room = {}
 
 local g_Game = Game()
 local g_Level = g_Game:GetLevel()
+local g_PlayerManager = PlayerManager
 
 local Lib = {
-    Table = require("dataminer_rework_src.lib.table"),
-    Grid = require("dataminer_rework_src.lib.grid")
+    Table = require("lib.table"),
+    Math = require("lib.math"),
+    Grid = require("lib.grid")
 }
 
 --#endregion
+
+---@param gridIdx integer
+---@param width integer
+---@return Vector
+local function GetGridPosition(gridIdx, width)
+    local x = gridIdx % width * 40.0 + 40.0
+    local y = gridIdx // width * 40.0 + 120.0
+    return Vector(x, y)
+end
 
 local function get_left0_door_coord(startRow, startColumn, finalRow, finalColumn)
     return {4, startColumn}
@@ -167,68 +178,68 @@ local function should_save_effect(variant, subType, spawnerType)
     return false
 end
 
----@param type EntityType | integer
+---@param entityType EntityType | integer
 ---@param variant integer
 ---@param subType integer
 ---@param spawnerType EntityType | integer
 ---@param clearedRoom boolean
 ---@return boolean
-local function should_save_npc(type, variant, subType, spawnerType, clearedRoom)
-    if type == EntityType.ENTITY_SHOPKEEPER then
+local function should_save_npc(entityType, variant, subType, spawnerType, clearedRoom)
+    if entityType == EntityType.ENTITY_SHOPKEEPER then
         return true
     end
 
-    if type == EntityType.ENTITY_FIREPLACE then
+    if entityType == EntityType.ENTITY_FIREPLACE then
         return variant ~= 10
     end
 
-    if type == EntityType.ENTITY_MOVABLE_TNT then
+    if entityType == EntityType.ENTITY_MOVABLE_TNT then
         return true
     end
 
-    if type == EntityType.ENTITY_PITFALL then
+    if entityType == EntityType.ENTITY_PITFALL then
         return spawnerType == EntityType.ENTITY_NULL
     end
 
-    if type == EntityType.ENTITY_MINECART then
+    if entityType == EntityType.ENTITY_MINECART then
         return variant ~= 10
     end
 
-    if type == EntityType.ENTITY_GIDEON then
+    if entityType == EntityType.ENTITY_GIDEON then
         return subType ~= 1 and clearedRoom
     end
 
-    if type == EntityType.ENTITY_GENERIC_PROP then
+    if entityType == EntityType.ENTITY_GENERIC_PROP then
         return true
     end
 
     return false
 end
 
----@param type EntityType | integer
+---@param entityType EntityType | integer
 ---@param variant integer
 ---@param subType integer
 ---@param spawnerType EntityType | integer
 ---@param clearedRoom boolean
 ---@return boolean
-local function ShouldSaveEntity(type, variant, subType, spawnerType, clearedRoom)
-    if type == EntityType.ENTITY_BOMB then
+local function ShouldSaveEntity(entityType, variant, subType, spawnerType, clearedRoom)
+    if entityType == EntityType.ENTITY_BOMB then
         return should_save_bomb(variant)
     end
 
-    if type == EntityType.ENTITY_SLOT then
+    if entityType == EntityType.ENTITY_SLOT then
         return true
     end
 
-    if type == EntityType.ENTITY_PICKUP then
+    if entityType == EntityType.ENTITY_PICKUP then
         return should_save_pickup(variant)
     end
 
-    if type == EntityType.ENTITY_EFFECT then
+    if entityType == EntityType.ENTITY_EFFECT then
         return should_save_effect(variant, subType, spawnerType)
     end
 
-    return should_save_npc(type, variant, subType, spawnerType, clearedRoom)
+    return should_save_npc(entityType, variant, subType, spawnerType, clearedRoom)
 end
 
 local function return_true()
@@ -262,11 +273,11 @@ local s_PersistentRoomEntity = {
     default = return_false,
 }
 
----@param type EntityType | integer
+---@param entityType EntityType | integer
 ---@param variant integer
 ---@return boolean
-function IsPersistentRoomEntity(type, variant)
-    local PersistentRoomEntity = s_PersistentRoomEntity[type] or s_PersistentRoomEntity.default
+function IsPersistentRoomEntity(entityType, variant)
+    local PersistentRoomEntity = s_PersistentRoomEntity[entityType] or s_PersistentRoomEntity.default
     return PersistentRoomEntity(variant)
 end
 
@@ -292,10 +303,10 @@ local s_VariantToHeartType_Greed = {
     [25] = HeartSubType.HEART_HALF
 }
 
----@param roomDesc RoomDescriptor
+---@param roomData RoomConfigRoom
 ---@return HeartSubType? heartType
-local function GetSuperSecretHeartType(roomDesc)
-    local roomVariant = roomDesc.Data.Variant
+local function GetSuperSecretHeartType(roomData)
+    local roomVariant = roomData.Variant
 
     local switchTable = g_Game:IsGreedMode() and s_VariantToHeartType_Greed or s_VariantToHeartType
     ---@type HeartSubType?
@@ -310,12 +321,89 @@ end
 
 --#endregion
 
+---@return boolean
+local function should_ignore_angel_chance_penalty()
+    if g_Level:GetAngelRoomChance() > 0.0 then
+        return true
+    end
+
+    if g_PlayerManager.AnyoneHasCollectible(CollectibleType.COLLECTIBLE_ACT_OF_CONTRITION) and g_Game:GetStateFlag(GameStateFlag.STATE_DEVILROOM_SPAWNED) then
+        return true
+    end
+
+    if g_PlayerManager.AnyoneHasCollectible(CollectibleType.COLLECTIBLE_BOOK_OF_VIRTUES) then
+        return true
+    end
+
+    return false
+end
+
+local function should_apply_angel_chance_penalty()
+    return not g_Game:GetStateFlag(GameStateFlag.STATE_DEVILROOM_SPAWNED) or g_Game:GetDevilRoomDeals() ~= 0
+end
+
+---@return number
+local function GetAngelRoomChance()
+    local chance = 0.5
+    if not g_Game:GetStateFlag(GameStateFlag.STATE_DEVILROOM_VISITED) and not g_Game:GetStateFlag(GameStateFlag.STATE_FAMINE_SPAWNED) then
+        chance = 1.0
+    end
+
+    if g_PlayerManager.AnyoneHasCollectible(CollectibleType.COLLECTIBLE_KEY_PIECE_1) then
+        chance = chance + (1.0 - chance) * 0.25
+    end
+
+    if g_PlayerManager.AnyoneHasCollectible(CollectibleType.COLLECTIBLE_KEY_PIECE_2) then
+        chance = chance + (1.0 - chance) * 0.25
+    end
+
+    if g_PlayerManager.AnyoneHasCollectible(CollectibleType.COLLECTIBLE_BOOK_OF_VIRTUES) then
+        chance = chance + (1.0 - chance) * 0.25
+    end
+
+    if g_PlayerManager.AnyoneHasTrinket(TrinketType.TRINKET_ROSARY_BEAD) then
+        chance = chance + (1.0 - chance) * 0.5
+    end
+
+    if g_Game:GetDonationModAngel() > 9 then
+        chance = chance + (1.0 - chance) * 0.5
+    end
+
+    if g_Level:GetStateFlag(LevelStateFlag.STATE_EVIL_BUM_KILLED) then
+        chance = chance + (1.0 - chance) * 0.25
+    end
+
+    if g_Level:GetStateFlag(LevelStateFlag.STATE_BUM_LEFT) ~= g_Level:GetStateFlag(LevelStateFlag.STATE_EVIL_BUM_LEFT) then
+        if g_Level:GetStateFlag(LevelStateFlag.STATE_BUM_LEFT) then
+            chance = chance + (1.0 - chance) * 0.1
+        end
+
+        if g_Level:GetStateFlag(LevelStateFlag.STATE_EVIL_BUM_LEFT) then
+            chance = chance - (1.0 - chance) * 0.1
+        end
+    end
+
+    if should_ignore_angel_chance_penalty() then
+        chance = chance + (1.0 - chance) * g_Level:GetAngelRoomChance()
+    elseif should_apply_angel_chance_penalty() then
+        chance = 0.0
+    end
+
+    if g_PlayerManager.AnyoneHasCollectible(CollectibleType.COLLECTIBLE_EUCHARIST) then
+        chance = 77.0
+    end
+
+    return Lib.Math.Clamp(chance, 0.0, 1.0)
+end
+
 --#region Module
 
+Lib_Room.GetGridPosition = GetGridPosition
 Lib_Room.GetDoorGridIndex = GetDoorGridIndex
 Lib_Room.ShouldSaveEntity = ShouldSaveEntity
 Lib_Room.IsPersistentRoomEntity = IsPersistentRoomEntity
 Lib_Room.GetSuperSecretHeartType = GetSuperSecretHeartType
+Lib_Room.GetAngelRoomChance = GetAngelRoomChance
 
 --#endregion
 

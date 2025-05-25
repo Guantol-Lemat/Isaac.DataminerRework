@@ -10,14 +10,17 @@ local g_PlayerManager = PlayerManager
 local g_ItemConfig = Isaac.GetItemConfig()
 local g_PersistentGameData = Isaac.GetPersistentGameData()
 
-local Enums = require("General.Enums")
+local Enums = require("enums")
 
 local Lib = {
-    Math = require("Lib.Math"),
-    RNG = require("dataminer_rework_src.lib.rng"),
-    ItemPool = require("Lib.ItemPool"),
-    EntityPickup = require("Lib.EntityPickup"),
+    Math = require("lib.math"),
+    RNG = require("lib.rng"),
+    ItemPool = require("lib.itempool"),
+    EntityPickup = require("lib.entity_pickup"),
 }
+
+local EntityRedirection = require("datamining.entity_redirection")
+local VirtualRoomQueries = require("datamining.virtual_room_queries")
 
 --#endregion
 
@@ -30,18 +33,9 @@ local Lib = {
 ---@field m_ShopItemType integer[] -- One for each shop item slot
 ---@field m_TimesRestocked integer[] -- One for each shop item slot
 
----This data is not actually separate from Room; it is directly
----stored and edited within RoomDescriptor, rather than copied over
----on Room:SaveState
----@class Decomp.Room.SubSystem.Shop.StateData
----@field m_NextShopItemIdx integer
----@field m_DiscountShopItemIdx integer
----@field m_ShopItemType integer[]
----@field m_TimesRestocked integer[]
-
 ---@param virtualRoom VirtualRoom
 ---@return VirtualShop
-local function NewVirtualShop(virtualRoom)
+local function CreateVirtualShop(virtualRoom)
     ---@type VirtualShop
     local shop = {
         m_Room = virtualRoom,
@@ -221,9 +215,9 @@ end
 ---@param shop VirtualShop
 ---@param rng RNG
 local function init_shop_service(shop, rng)
-    local roomDesc = shop.m_Room.roomDescriptor
+    local roomDesc = shop.m_Room.m_RoomDescriptor
     local roomData = roomDesc.Data
-    local roomType = roomData.Type
+    local roomType = roomData and roomData.Type or RoomType.ROOM_DEFAULT
 
     if roomType == RoomType.ROOM_DEVIL or roomType == RoomType.ROOM_BLACK_MARKET or (roomDesc.Flags & RoomDescriptor.FLAG_DEVIL_TREASURE ~= 0) then
         init_devil_shop(shop, rng)
@@ -235,17 +229,17 @@ local function init_shop_service(shop, rng)
         return
     end
 
-    if is_keeper_shop(roomData) then
+    if roomData and is_keeper_shop(roomData) then
         init_keeper_shop(shop, rng)
         return
     end
 
-    if shop.m_Room.roomIdx == GridRooms.ROOM_SECRET_SHOP_IDX then
+    if shop.m_Room.m_RoomIdx == GridRooms.ROOM_SECRET_SHOP_IDX then
         init_secret_shop(shop, rng)
         return
     end
 
-    if g_Game:IsGreedMode() or is_keeper_shop(roomData) then
+    if g_Game:IsGreedMode() or (roomData and is_keeper_shop(roomData)) then
         init_greed_shop(shop, rng)
         return
     end
@@ -256,15 +250,15 @@ end
 ---@param shop VirtualShop
 local function InitShop(shop)
     local room = shop.m_Room
-    local roomDesc = room.roomDescriptor
+    local roomDesc = room.m_RoomDescriptor
 
     for i = 1, #shop.m_TimesRestocked, 1 do
         shop.m_TimesRestocked[i] = 0
     end
 
-    local rng = RNG(room.awardSeed, 35)
+    local rng = RNG(roomDesc.AwardSeed, 35)
     init_shop_service(shop, rng)
-    room.awardSeed = rng:GetSeed()
+    roomDesc.AwardSeed = rng:GetSeed()
 end
 
 --#endregion
@@ -275,7 +269,7 @@ end
 
 ---@class ShopPickup
 ---@field variant PickupVariant | integer
----@field subType integer
+---@field subtype integer
 
 ---@param shop VirtualShop
 ---@param roomType RoomType
@@ -351,7 +345,7 @@ end
 
 ---@param io Switch.GetShopPickup
 local function get_collectible(io)
-    return {PickupVariant.PICKUP_COLLECTIBLE, Lib.ItemPool.GetSeededCollectible(io.room.roomDescriptor, io.seed, true)}
+    return {PickupVariant.PICKUP_COLLECTIBLE, VirtualRoomQueries.GetSeededCollectible(io.room, io.seed, true)}
 end
 
 ---@param io Switch.GetShopPickup
@@ -394,11 +388,11 @@ local function get_special_heart(io)
         heartSubType = HeartSubType.HEART_ETERNAL
     end
 
-    if rng:RandomInt(4) == 0 and Lib.EntityPickup.IsAvailable(PickupVariant.PICKUP_HEART, HeartSubType.HEART_BONE) then
+    if rng:RandomInt(4) == 0 and EntityRedirection.IsBasePickupAvailable(PickupVariant.PICKUP_HEART, HeartSubType.HEART_BONE) then
         heartSubType = HeartSubType.HEART_BONE
     end
 
-    if rng:RandomInt(4) == 0 and Lib.EntityPickup.IsAvailable(PickupVariant.PICKUP_HEART, HeartSubType.HEART_ROTTEN) then
+    if rng:RandomInt(4) == 0 and EntityRedirection.IsBasePickupAvailable(PickupVariant.PICKUP_HEART, HeartSubType.HEART_ROTTEN) then
         heartSubType = HeartSubType.HEART_ROTTEN
     end
 
@@ -468,9 +462,10 @@ local function get_shop_pickup(shop, shopItem, seed)
     ---@type Switch.GetShopPickup
     local io = {room = shop.m_Room, seed = seed}
     local GetShopPickup = switch_GetShopPickup[shopItem]
-    local variant, subType = GetShopPickup(io)
+    local shopPickup = GetShopPickup(io)
 
-    return {variant = variant, subType = subType}
+    ---@type ShopPickup
+    return {variant = shopPickup[1], subtype = shopPickup[2]}
 end
 
 ---@param shop VirtualShop
@@ -481,7 +476,7 @@ local function GetShopItem(shop, index, seed)
     local room = shop.m_Room
     index = Lib.Math.Clamp(index, 0, 7)
 
-    if g_PlayerManager.AnyoneHasTrinket(TrinketType.TRINKET_ADOPTION_PAPERS) and should_perform_baby_shop_morph(shop, room.roomType, index) then
+    if g_PlayerManager.AnyoneHasTrinket(TrinketType.TRINKET_ADOPTION_PAPERS) and should_perform_baby_shop_morph(shop, room.m_RoomType, index) then
         shop.m_ShopItemType[index + 1] = Enums.eShopItemType.COLLECTIBLE_BABY_SHOP
     end
 
@@ -509,9 +504,9 @@ end
 
 ---@param shop VirtualShop
 local function uses_devil_deal_price_logic(shop)
-    local roomDesc = shop.m_Room.roomDescriptor
+    local roomDesc = shop.m_Room.m_RoomDescriptor
     local roomData = roomDesc.Data
-    local roomType = roomData.Type
+    local roomType = roomData and roomData.Type or RoomType.ROOM_DEFAULT
 
     if roomType == RoomType.ROOM_DEVIL or roomType == RoomType.ROOM_BLACK_MARKET then
         return true
@@ -687,7 +682,7 @@ local function get_regular_collectible_item_price(io)
         return 15
     end
 
-    if io.room.roomType == RoomType.ROOM_ANGEL then
+    if io.room.m_RoomType == RoomType.ROOM_ANGEL then
         return collectibleConfig.ShopPrice
     end
 
@@ -714,7 +709,7 @@ end
 ---@param subType integer
 ---@param index integer
 local function GetShopItemPrice(shop, variant, subType, index)
-    local roomDesc = shop.m_Room.roomDescriptor
+    local roomDesc = shop.m_Room.m_RoomDescriptor
 
     local seed = roomDesc.DecorationSeed & 0xfffff800 | variant + subType
     local rng = RNG(seed, 35)
@@ -730,7 +725,7 @@ local function GetShopItemPrice(shop, variant, subType, index)
     ---@type Switch.GetShopPriceIO
     local io = {room = shop.m_Room, variant = variant, subType = subType, shopItemType = shopItemType, rng = rng, poundOfFlesh = poundOfFlesh, forcedCoinPrice = forcedCoinPrice}
 
-    if shop.m_Room.roomIdx == GridRooms.ROOM_SECRET_SHOP_IDX then
+    if shop.m_Room.m_RoomIdx == GridRooms.ROOM_SECRET_SHOP_IDX then
         return get_secret_shop_item_price(io)
     end
 
@@ -875,7 +870,7 @@ local function get_modified_price(shop, shopIndex, price)
     local originalPrice = price
     local discountPoints = get_discount_points(shop, shopIndex)
 
-    if shop.m_Room.roomType == RoomType.ROOM_SHOP and g_PlayerManager.AnyoneHasTrinket(TrinketType.TRINKET_STORE_CREDIT) then
+    if shop.m_Room.m_RoomType == RoomType.ROOM_SHOP and g_PlayerManager.AnyoneHasTrinket(TrinketType.TRINKET_STORE_CREDIT) then
         price = PickupPrice.PRICE_FREE
     else
         price = calc_discount_price(price, discountPoints)
@@ -924,13 +919,13 @@ local function get_next_shop_item_idx(shop)
     return shop.m_NextShopItemIdx
 end
 
----@class Decomp.Room.SubSystem.ShopItemData : ShopPickup
+---@class ShopItemData : ShopPickup
 ---@field shopItemIdx integer
 ---@field price integer
 
 ---@param shop VirtualShop
 ---@param seed integer
----@return Decomp.Room.SubSystem.ShopItemData
+---@return ShopItemData
 local function MakeShopItem(shop, seed)
     if shop.m_NextShopItemIdx < 0 then
         InitShop(shop)
@@ -938,25 +933,25 @@ local function MakeShopItem(shop, seed)
 
     local shopItemIdx = get_next_shop_item_idx(shop)
     local shopPickup = GetShopItem(shop, shopItemIdx, seed)
-    local price = GetShopItemPrice(shop, shopPickup.variant, shopPickup.subType, shopItemIdx)
+    local price = GetShopItemPrice(shop, shopPickup.variant, shopPickup.subtype, shopItemIdx)
     price = TryGetShopDiscount(shop, shopItemIdx, price)
 
     if #shop.m_ShopItemIdxDeque == 0 then
         increase_shop_item_idx(shop)
     end
 
-    ---@type Decomp.Room.SubSystem.ShopItemData
+    ---@type ShopItemData
     return {
         shopItemIdx = shopItemIdx,
         variant = shopPickup.variant,
-        subType = shopPickup.subType,
+        subtype = shopPickup.subtype,
         price = price,
     }
 end
 
 --#region Module
 
-VirtualShop.NewVirtualShop = NewVirtualShop
+VirtualShop.Create = CreateVirtualShop
 VirtualShop.GetShopItem = GetShopItem
 VirtualShop.GetShopItemPrice = GetShopItemPrice
 VirtualShop.TryGetShopDiscount = TryGetShopDiscount

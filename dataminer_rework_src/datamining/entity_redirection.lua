@@ -17,12 +17,14 @@ local g_PersistentGameData = Isaac.GetPersistentGameData()
 local g_ItemConfig = Isaac.GetItemConfig()
 
 local Lib = {
-    Table = require("dataminer_rework_src.lib.table"),
-    Grid = require("dataminer_rework_src.lib.grid"),
-    Level = require("dataminer_rework_src.lib.level"),
-    PersistentGameData = require("dataminer_rework_src.lib.persistent_game_data"),
-    EntityPickup = require("dataminer_rework_src.lib.entity_pickup"),
+    Table = require("lib.table"),
+    Grid = require("lib.grid"),
+    Level = require("lib.level"),
+    PersistentGameData = require("lib.persistent_game_data"),
+    EntityPickup = require("lib.entity_pickup"),
 }
+
+local CustomCallbacks = require("callbacks")
 
 --#endregion
 
@@ -39,37 +41,6 @@ local function get_daily_special_run_id()
 end
 
 local function switch_break()
-end
-
----@param type integer
----@param variant integer
----@param subtype integer
----@param gridIdx integer
----@param seed integer
----@param virtualRoom VirtualRoom
----@return integer type, integer variant, integer subtype, boolean overridden
-local function run_mc_pre_room_entity_spawn(type, variant, subtype, gridIdx, seed, virtualRoom)
-    local overridden = false
-    local callbackReturn = Isaac.RunCallback(ModCallbacks.MC_PRE_ROOM_ENTITY_SPAWN, type, variant, subtype, gridIdx, seed, virtualRoom)
-
-    if type(callbackReturn) == "table" then
-        if callbackReturn[1] then
-            overridden = true
-            type = callbackReturn[1]
-        end
-
-        if callbackReturn[2] then
-            overridden = true
-            variant = callbackReturn[2]
-        end
-
-        if callbackReturn[3] then
-            overridden = true
-            subtype = callbackReturn[3]
-        end
-    end
-
-    return type, variant, subtype, overridden
 end
 
 --#region IsAvailable
@@ -218,27 +189,27 @@ local s_DefaultChests = {
 ---@param variant integer
 ---@param subtype integer
 ---@param rng RNG
----@return integer type, integer variant, integer subtype
+---@return integer entityType, integer variant, integer subtype
 local function redirect_unavailable_pickup(variant, subtype, rng)
-    local type = EntityType.ENTITY_PICKUP
+    local entityType = EntityType.ENTITY_PICKUP
     local seed = rng:Next()
 
     if Lib.EntityPickup.IsChest(variant) then
         variant = s_DefaultChests[variant] or PickupVariant.PICKUP_CHEST
-        return type, variant, subtype
+        return entityType, variant, subtype
     end
 
     if variant == PickupVariant.PICKUP_HEART then
         subtype = s_DefaultHearts[subtype] or 0
-        return type, variant, subtype
+        return entityType, variant, subtype
     end
 
     if variant == PickupVariant.PICKUP_TAROTCARD and subtype ~= 0 then
         subtype = g_ItemPool:GetCard(seed, true, true, false)
-        return type, variant, subtype
+        return entityType, variant, subtype
     end
 
-    return type, variant, 0
+    return entityType, variant, 0
 end
 
 local s_DefaultSlots = {
@@ -250,9 +221,9 @@ local s_DefaultSlots = {
 
 ---@param variant integer
 ---@param subtype integer
----@return integer type, integer variant, integer subtype
+---@return integer entityType, integer variant, integer subtype
 local function redirect_unavailable_slot(variant, subtype)
-    type = EntityType.ENTITY_SLOT
+    local entityType = EntityType.ENTITY_SLOT
 
     if variant == SlotVariant.HOME_CLOSET_PLAYER then
         if g_PersistentGameData:Unlocked(Achievement.INNER_CHILD) then
@@ -263,18 +234,18 @@ local function redirect_unavailable_slot(variant, subtype)
     end
 
     local defaultEntry = s_DefaultSlots[variant] or {EntityType.ENTITY_SLOT, SlotVariant.SLOT_MACHINE, nil}
-    type = defaultEntry[1] or type
+    entityType = defaultEntry[1] or entityType
     variant = defaultEntry[2] or variant
     subtype = defaultEntry[3] or subtype
 
-    return type, variant, subtype
+    return entityType, variant, subtype
 end
 
 ---@param virtualRoom VirtualRoom
 ---@param rng RNG
 ---@return boolean
 local function is_heavens_trapdoor(virtualRoom, rng)
-    if virtualRoom.roomType == RoomType.ROOM_ANGEL then
+    if virtualRoom.m_RoomType == RoomType.ROOM_ANGEL then
         return true
     end
 
@@ -292,7 +263,7 @@ local function is_heavens_trapdoor(virtualRoom, rng)
         forcedDevilPath = not forcedAngelPath
     end
 
-    if virtualRoom.roomType == RoomType.ROOM_ERROR and
+    if virtualRoom.m_RoomType == RoomType.ROOM_ERROR and
        (stage == LevelStage.STAGE4_2 or stage == LevelStage.STAGE4_3) and
        ((rng:RandomInt(2) == 0 and not forcedDevilPath) or forcedAngelPath) then
         return true
@@ -302,18 +273,18 @@ local function is_heavens_trapdoor(virtualRoom, rng)
         return true
     end
 
-    if virtualRoom.roomIdx == GridRooms.ROOM_GENESIS_IDX then
+    if virtualRoom.m_RoomIdx == GridRooms.ROOM_GENESIS_IDX then
         return true
     end
 
     return false
 end
 
----@param type integer
+---@param entityType integer
 ---@param variant integer
 ---@param subtype integer
----@return integer type, integer variant, integer subtype
-local function redirect_into_heavens_trapdoor(type, variant, subtype)
+---@return integer entityType, integer variant, integer subtype
+local function redirect_into_heavens_trapdoor(entityType, variant, subtype)
     if not g_Level:IsNextStageAvailable() then
         return StbGridType.CRAWLSPACE, 3, subtype
     end
@@ -322,16 +293,16 @@ local function redirect_into_heavens_trapdoor(type, variant, subtype)
         return STB_EFFECT, EffectVariant.HEAVEN_LIGHT_DOOR, subtype
     end
 
-    return type, variant, subtype
+    return entityType, variant, subtype
 end
 
 ---@param virtualRoom VirtualRoom
----@param type integer
+---@param entityType integer
 ---@param variant integer
 ---@param subtype integer
 ---@param rng RNG
----@return integer type, integer variant, integer subtype
-local function redirect_error_room_trapdoor(virtualRoom, type, variant, subtype, rng)
+---@return integer entityType, integer variant, integer subtype
+local function redirect_error_room_trapdoor(virtualRoom, entityType, variant, subtype, rng)
     local stage = Lib.Level.GetEffectiveStage(g_Level)
     if g_Game:IsGreedMode() then
         stage = Lib.Level.ConvertGreedStageToNormal(stage)
@@ -344,7 +315,7 @@ local function redirect_error_room_trapdoor(virtualRoom, type, variant, subtype,
         endStage = challengeEndStage ~= LevelStage.STAGE_NULL and challengeEndStage or endStage
 
         if endStage >= LevelStage.STAGE7 then
-            return type, 1, subtype
+            return entityType, 1, subtype
         end
     end
 
@@ -353,46 +324,46 @@ local function redirect_error_room_trapdoor(virtualRoom, type, variant, subtype,
     end
 
     if is_heavens_trapdoor(virtualRoom, rng) then
-        return redirect_into_heavens_trapdoor(type, variant, subtype)
+        return redirect_into_heavens_trapdoor(entityType, variant, subtype)
     end
 
-    return type, variant, subtype
+    return entityType, variant, subtype
 end
 
 ---@param virtualRoom VirtualRoom
 ---@param variant integer
 ---@param subtype integer
 ---@param rng RNG
----@return integer type, integer variant, integer subtype
+---@return integer entityType, integer variant, integer subtype
 local function redirect_trapdoor(virtualRoom, variant, subtype, rng)
-    local type = StbGridType.TRAP_DOOR
+    local entityType = StbGridType.TRAP_DOOR
 
     if g_Game:IsGreedMode() then
-        return type, variant, subtype
+        return entityType, variant, subtype
     end
 
     if Lib.Level.IsBackwardsPath(g_Level) then
         return STB_EFFECT, EffectVariant.HEAVEN_LIGHT_DOOR, subtype
     end
 
-    if virtualRoom.roomType == RoomType.ROOM_ERROR then
-        return redirect_error_room_trapdoor(virtualRoom, type, variant, subtype, rng)
+    if virtualRoom.m_RoomType == RoomType.ROOM_ERROR then
+        return redirect_error_room_trapdoor(virtualRoom, entityType, variant, subtype, rng)
     end
 
     if is_heavens_trapdoor(virtualRoom, rng) then
-        return redirect_into_heavens_trapdoor(type, variant, subtype)
+        return redirect_into_heavens_trapdoor(entityType, variant, subtype)
     end
 
-    return type, variant, subtype
+    return entityType, variant, subtype
 end
 
----@param type EntityType | integer
+---@param entityType EntityType | integer
 ---@param variant integer
 ---@return EntityType | integer redirectType
 ---@return integer redirectVariant
 ---@return boolean redirected
-local function morph_into_easier_npc(type, variant)
-    if type == EntityType.ENTITY_BLISTER then
+local function morph_into_easier_npc(entityType, variant)
+    if entityType == EntityType.ENTITY_BLISTER then
         if g_Game:IsHardMode() then
             return EntityType.ENTITY_TICKING_SPIDER, 0, true
         end
@@ -400,23 +371,23 @@ local function morph_into_easier_npc(type, variant)
         return EntityType.ENTITY_HOPPER, 1, true
     end
 
-    if type == EntityType.ENTITY_MUSHROOM then
+    if entityType == EntityType.ENTITY_MUSHROOM then
         return EntityType.ENTITY_HOST, 0, true
     end
 
-    if type == EntityType.ENTITY_MINISTRO then
+    if entityType == EntityType.ENTITY_MINISTRO then
         return EntityType.ENTITY_HOPPER, 0, true
     end
 
-    if type == EntityType.ENTITY_NERVE_ENDING then
+    if entityType == EntityType.ENTITY_NERVE_ENDING then
         return EntityType.ENTITY_NERVE_ENDING, 0, true
     end
 
-    if type == EntityType.ENTITY_POISON_MIND then
+    if entityType == EntityType.ENTITY_POISON_MIND then
         return EntityType.ENTITY_BRAIN, 0, true
     end
 
-    if type == EntityType.ENTITY_STONEY then
+    if entityType == EntityType.ENTITY_STONEY then
         if g_Game:IsHardMode() then
             return EntityType.ENTITY_CONJOINED_FATTY, 0, true
         end
@@ -424,7 +395,7 @@ local function morph_into_easier_npc(type, variant)
         return EntityType.ENTITY_FATTY, 0, true
     end
 
-    if type == EntityType.ENTITY_THE_THING then
+    if entityType == EntityType.ENTITY_THE_THING then
         if g_Game:IsHardMode() then
             return EntityType.ENTITY_BLIND_CREEP, 0, true
         end
@@ -432,7 +403,7 @@ local function morph_into_easier_npc(type, variant)
         return EntityType.ENTITY_WALL_CREEP, 0, true
     end
 
-    return type, variant, false
+    return entityType, variant, false
 end
 
 local s_StagePortalDefault = {
@@ -478,7 +449,7 @@ local function redirect_unavailable_portal(virtualRoom)
     if g_Game:IsGreedMode() then
         morphTable = s_GreedPortalDefault[g_Level:GetStage()] or s_GreedPortalDefault.default
     else
-        morphTable = s_StagePortalDefault[virtualRoom.roomDescriptor.Data.StageID] or s_StagePortalDefault.default
+        morphTable = s_StagePortalDefault[virtualRoom.m_RoomDescriptor.Data.StageID] or s_StagePortalDefault.default
     end
 
     if not morphTable then
@@ -490,50 +461,50 @@ local function redirect_unavailable_portal(virtualRoom)
     return {morphTable[morphType], morphTable[morphVariant]}
 end
 
----@param type EntityType | integer
+---@param entityType EntityType | integer
 ---@param variant integer
 ---@return EntityType | integer redirectType
 ---@return integer redirectVariant
-local function g_fuel_morph(type, variant)
-    if type == EntityType.ENTITY_HOST then
+local function g_fuel_morph(entityType, variant)
+    if entityType == EntityType.ENTITY_HOST then
         return EntityType.ENTITY_HOST, 1
     end
 
-    if type == EntityType.ENTITY_MOBILE_HOST then
+    if entityType == EntityType.ENTITY_MOBILE_HOST then
         return EntityType.ENTITY_FLESH_MOBILE_HOST, variant
     end
 
-    if type == EntityType.ENTITY_FLOATING_HOST then
+    if entityType == EntityType.ENTITY_FLOATING_HOST then
         return EntityType.ENTITY_BOOMFLY, 1
     end
 
-    if type == EntityType.ENTITY_COD_WORM then
+    if entityType == EntityType.ENTITY_COD_WORM then
         return EntityType.ENTITY_PARA_BITE, variant
     end
 
-    return type, variant
+    return entityType, variant
 end
 
 ---@param virtualRoom VirtualRoom
----@param type EntityType | integer
+---@param entityType EntityType | integer
 ---@param variant integer
 ---@return EntityType | integer redirectType
 ---@return integer redirectVariant
 ---@return boolean
-local function RedirectNPC(virtualRoom, type, variant)
-    if type == EntityType.ENTITY_SUCKER and variant == 5 and not g_PersistentGameData:Unlocked(Achievement.EVERYTHING_IS_TERRIBLE) then
-        type = EntityType.ENTITY_FLY
+local function RedirectNPC(virtualRoom, entityType, variant)
+    if entityType == EntityType.ENTITY_SUCKER and variant == 5 and not g_PersistentGameData:Unlocked(Achievement.EVERYTHING_IS_TERRIBLE) then
+        entityType = EntityType.ENTITY_FLY
         variant = 0
     end
 
     if not g_PersistentGameData:Unlocked(Achievement.THE_GATE_IS_OPEN) then
         local redirected = false
-        type, variant, redirected = morph_into_easier_npc(type, variant)
+        entityType, variant, redirected = morph_into_easier_npc(entityType, variant)
         if redirected then
-            return type, variant, true
+            return entityType, variant, true
         end
 
-        if type == EntityType.ENTITY_PORTAL then
+        if entityType == EntityType.ENTITY_PORTAL then
             local redirectedEntity = redirect_unavailable_portal(virtualRoom)
             if redirectedEntity then
                 return redirectedEntity[1], redirectedEntity[2], true
@@ -542,10 +513,10 @@ local function RedirectNPC(virtualRoom, type, variant)
     end
 
     if g_Seeds:HasSeedEffect(SeedEffect.SEED_G_FUEL) then
-        type, variant = g_fuel_morph(type, variant)
+        entityType, variant = g_fuel_morph(entityType, variant)
     end
 
-    return type, variant, false
+    return entityType, variant, false
 end
 
 --#endregion
@@ -555,36 +526,36 @@ end
 ---@param virtualRoom VirtualRoom
 ---@param variant PickupVariant | integer
 ---@param subtype integer
----@return integer type, integer variant, integer subtype
+---@return integer entityType, integer variant, integer subtype
 local function morph_pickup_spawn(virtualRoom, variant, subtype)
-    local type = EntityType.ENTITY_PICKUP
+    local entityType = EntityType.ENTITY_PICKUP
 
-    if (virtualRoom.roomDescriptor.Flags & RoomDescriptor.FLAG_DEVIL_TREASURE ~= 0) and variant == PickupVariant.PICKUP_COLLECTIBLE then
-        return type, PickupVariant.PICKUP_SHOPITEM, subtype
+    if (virtualRoom.m_RoomDescriptor.Flags & RoomDescriptor.FLAG_DEVIL_TREASURE ~= 0) and variant == PickupVariant.PICKUP_COLLECTIBLE then
+        return entityType, PickupVariant.PICKUP_SHOPITEM, subtype
     end
 
-    return type, variant, subtype
+    return entityType, variant, subtype
 end
 
 ---@param variant SlotVariant | integer
 ---@param subtype integer
 ---@param seed integer
----@return integer type, integer variant, integer subtype
+---@return integer entityType, integer variant, integer subtype
 local function morph_slot_spawn(variant, subtype, seed)
-    type = EntityType.ENTITY_SLOT
+    local entityType = EntityType.ENTITY_SLOT
     local rng = RNG(seed, 68)
 
     if variant == SlotVariant.SHELL_GAME and IsSlotAvailable(SlotVariant.HELL_GAME, subtype) and
        g_Game:GetDevilRoomDeals() > 0 and rng:RandomInt(4) == 0 then
-        return type, SlotVariant.HELL_GAME, subtype
+        return entityType, SlotVariant.HELL_GAME, subtype
     end
 
     if variant == SlotVariant.BEGGAR and IsSlotAvailable(SlotVariant.ROTTEN_BEGGAR, subtype) and
        rng:RandomInt(15) == 0 then
-        return type, SlotVariant.ROTTEN_BEGGAR, subtype
+        return entityType, SlotVariant.ROTTEN_BEGGAR, subtype
     end
 
-    return type, variant, subtype
+    return entityType, variant, subtype
 end
 
 ---@class Switch.TryStageSpawnModifiersIO
@@ -776,7 +747,7 @@ local function skinny_stage_modifier(io)
     return false
 end
 
----@param roomDescriptor RoomDescriptor
+---@param roomDescriptor VirtualRoomDescriptor
 ---@param doorSlot DoorSlot
 ---@return boolean
 local function is_door_slot_allowed(roomDescriptor, doorSlot)
@@ -792,11 +763,11 @@ end
 ---@param doorSlot DoorSlot
 ---@param spawnCoordinates Vector
 local function is_nerve_close_to_door_slot(virtualRoom, doorSlot, spawnCoordinates)
-    if not is_door_slot_allowed(virtualRoom.roomDescriptor, doorSlot) then
+    if not is_door_slot_allowed(virtualRoom.m_RoomDescriptor, doorSlot) then
         return false
     end
 
-    local doorGridCoordinates = Lib.Grid.GetCoordinatesFromGridIdx(virtualRoom.doorGridIdx[doorSlot + 1], virtualRoom.width)
+    local doorGridCoordinates = Lib.Grid.GetCoordinatesFromGridIdx(virtualRoom.m_DoorGridIdx[doorSlot + 1], virtualRoom.m_Width)
     return Lib.Grid.ManhattanDistance(doorGridCoordinates, spawnCoordinates) < 4
 end
 
@@ -806,7 +777,7 @@ local function nerve_ending_stage_modifier(io)
         return false
     end
 
-    local spawnCoordinates = Lib.Grid.GetCoordinatesFromGridIdx(io.gridIdx, io.virtualRoom.width)
+    local spawnCoordinates = Lib.Grid.GetCoordinatesFromGridIdx(io.gridIdx, io.virtualRoom.m_Width)
 
     for i = 0, DoorSlot.NUM_DOOR_SLOTS - 1, 1 do
         if is_nerve_close_to_door_slot(io.virtualRoom, i, spawnCoordinates) then
@@ -842,12 +813,12 @@ local switch_TryStageSpawnModifiers = {
 }
 
 ---@param virtualRoom VirtualRoom
----@param type integer
+---@param entityType integer
 ---@param variant integer
 ---@param gridIdx integer
 ---@param rng RNG
----@return integer type, integer variant, boolean appliedModifier
-local function try_stage_npc_morph(virtualRoom, type, variant, gridIdx, rng)
+---@return integer entityType, integer variant, boolean appliedModifier
+local function try_stage_npc_morph(virtualRoom, entityType, variant, gridIdx, rng)
     local stage = Lib.Level.GetEffectiveStage(g_Level)
     if g_Game:IsGreedMode() then
         stage = Lib.Level.ConvertGreedStageToNormal(stage)
@@ -858,7 +829,7 @@ local function try_stage_npc_morph(virtualRoom, type, variant, gridIdx, rng)
     ---@type Switch.TryStageSpawnModifiersIO
     local switchIO = {
         virtualRoom = virtualRoom,
-        type = type,
+        type = entityType,
         variant = variant,
         gridIdx = gridIdx,
         rng = rng,
@@ -871,7 +842,7 @@ local function try_stage_npc_morph(virtualRoom, type, variant, gridIdx, rng)
         gateOpen = g_PersistentGameData:Unlocked(Achievement.THE_GATE_IS_OPEN),
     }
 
-    local TryStageSpawnModifiers = switch_TryStageSpawnModifiers[type] or switch_TryStageSpawnModifiers.default
+    local TryStageSpawnModifiers = switch_TryStageSpawnModifiers[entityType] or switch_TryStageSpawnModifiers.default
     local appliedModifier = TryStageSpawnModifiers(switchIO)
     return switchIO.type, switchIO.variant, appliedModifier
 end
@@ -882,16 +853,16 @@ local s_HasHardRareSpawnVariant = Lib.Table.CreateDictionary({
     EntityType.ENTITY_WALKINGBOIL
 })
 
----@param type integer
+---@param entityType integer
 ---@param variant integer
 ---@param rng RNG
----@return integer type, integer variant
-local function try_rare_hard_npc_variant(type, variant, rng)
-    if s_HasHardRareSpawnVariant[type] and rng:RandomInt(100) == 0 then
+---@return integer entityType, integer variant
+local function try_rare_hard_npc_variant(entityType, variant, rng)
+    if s_HasHardRareSpawnVariant[entityType] and rng:RandomInt(100) == 0 then
         variant = 2
     end
 
-    return type, variant
+    return entityType, variant
 end
 
 ---@class Switch.TryAltNpcVariantIO
@@ -959,124 +930,124 @@ local switch_TryAltNpcVariant = {
     default = switch_break,
 }
 
----@param type integer
+---@param entityType integer
 ---@param variant integer
 ---@param rng RNG
----@return integer type, integer variant
-local function try_alt_npc_variant(type, variant, rng)
+---@return integer entityType, integer variant
+local function try_alt_npc_variant(entityType, variant, rng)
     ---@type Switch.TryAltNpcVariantIO
     local switchIO = {
         has21Chance = false,
         has25Chance = false,
     }
 
-    local TryAltNpcVariant = switch_TryAltNpcVariant[type] or switch_TryAltNpcVariant.default
+    local TryAltNpcVariant = switch_TryAltNpcVariant[entityType] or switch_TryAltNpcVariant.default
     TryAltNpcVariant(switchIO)
 
     if not switchIO.has21Chance and not switchIO.has25Chance then
-        return type, variant
+        return entityType, variant
     end
 
     if (switchIO.has21Chance and rng:RandomInt(21) == 0) or (switchIO.has25Chance and rng:RandomInt(25) == 0) or rng:RandomInt(100) == 0 then
         variant = 1
     end
 
-    return type, variant
+    return entityType, variant
 end
 
 ---@param virtualRoom VirtualRoom
----@param type integer
+---@param entityType integer
 ---@param variant integer
 ---@param subtype integer
 ---@param gridIdx integer
 ---@param rng RNG
----@return integer type, integer variant, integer subtype
-local function morph_npc_spawn(virtualRoom, type, variant, subtype, gridIdx, rng)
-    if type == EntityType.ENTITY_STONEY then
+---@return integer entityType, integer variant, integer subtype
+local function morph_npc_spawn(virtualRoom, entityType, variant, subtype, gridIdx, rng)
+    if entityType == EntityType.ENTITY_STONEY then
         if (g_Game.Challenge == Challenge.CHALLENGE_APRILS_FOOL or get_daily_special_run_id() == 7) and rng:RandomInt(5) == 0 then
-            return type, 10, subtype
+            return entityType, 10, subtype
         end
     end
 
     local modifierApplied = false
-    type, variant, modifierApplied = try_stage_npc_morph(virtualRoom, type, variant, gridIdx, rng)
+    entityType, variant, modifierApplied = try_stage_npc_morph(virtualRoom, entityType, variant, gridIdx, rng)
 
     if modifierApplied then
-        return type, variant, subtype
+        return entityType, variant, subtype
     end
 
-    type, variant = try_rare_hard_npc_variant(type, variant, rng)
-    type, variant = try_alt_npc_variant(type, variant, rng)
+    entityType, variant = try_rare_hard_npc_variant(entityType, variant, rng)
+    entityType, variant = try_alt_npc_variant(entityType, variant, rng)
 
-    if type == EntityType.ENTITY_BOOMFLY and variant == 3 and subtype == 100 then
+    if entityType == EntityType.ENTITY_BOOMFLY and variant == 3 and subtype == 100 then
         subtype = rng:RandomInt(2)
     end
 
-    return type, variant, subtype
+    return entityType, variant, subtype
 end
 
 ---@param virtualRoom VirtualRoom
----@param type EntityType | integer
+---@param entityType EntityType | integer
 ---@param variant integer
 ---@param subtype integer
 ---@param gridIdx integer
 ---@param seed integer
----@return integer type, integer variant, integer subtype
-local function FixSpawnEntry(virtualRoom, type, variant, subtype, gridIdx, seed)
+---@return integer entityType, integer variant, integer subtype
+local function FixSpawnEntry(virtualRoom, entityType, variant, subtype, gridIdx, seed)
     local rng = RNG(seed, 7)
 
-    if type == GRID_FIREPLACE then
-        type = EntityType.ENTITY_FIREPLACE
+    if entityType == GRID_FIREPLACE then
+        entityType = EntityType.ENTITY_FIREPLACE
         variant = rng:RandomInt(40) == 0 and 1 or 0
     end
 
-    if type == GRID_FIREPLACE_RED then
-        type = EntityType.ENTITY_FIREPLACE
+    if entityType == GRID_FIREPLACE_RED then
+        entityType = EntityType.ENTITY_FIREPLACE
         variant = 1
     end
 
     local overridden = false
-    type, variant, subtype, overridden = run_mc_pre_room_entity_spawn(type, variant, subtype, gridIdx, seed, virtualRoom)
+    entityType, variant, subtype, overridden = CustomCallbacks.RunPreRoomEntitySpawn(entityType, variant, subtype, gridIdx, seed, virtualRoom)
 
-    if type == EntityType.ENTITY_PICKUP and variant == RUNE_VARIANT then
+    if entityType == EntityType.ENTITY_PICKUP and variant == RUNE_VARIANT then
         variant = PickupVariant.PICKUP_TAROTCARD
         subtype = g_ItemPool:GetCard(rng:Next(), false, true, true)
     end
 
     if overridden then
-        return type, variant, subtype
+        return entityType, variant, subtype
     end
 
-    if type == EntityType.ENTITY_PICKUP and not is_pickup_available(variant, subtype) then
-        type, variant, subtype = redirect_unavailable_pickup(variant, subtype, rng)
+    if entityType == EntityType.ENTITY_PICKUP and not is_pickup_available(variant, subtype) then
+        entityType, variant, subtype = redirect_unavailable_pickup(variant, subtype, rng)
     end
 
-    if type == EntityType.ENTITY_SLOT and not IsSlotAvailable(variant, subtype) then
-        type, variant, subtype = redirect_unavailable_slot(variant, subtype)
+    if entityType == EntityType.ENTITY_SLOT and not IsSlotAvailable(variant, subtype) then
+        entityType, variant, subtype = redirect_unavailable_slot(variant, subtype)
     end
 
-    if type == StbGridType.TRAP_DOOR then
-        type, variant, subtype = redirect_trapdoor(virtualRoom, variant, subtype, rng)
+    if entityType == StbGridType.TRAP_DOOR then
+        entityType, variant, subtype = redirect_trapdoor(virtualRoom, variant, subtype, rng)
     end
 
-    if type == EntityType.ENTITY_PICKUP then
-        type, variant, subtype = morph_pickup_spawn(virtualRoom, variant, subtype)
+    if entityType == EntityType.ENTITY_PICKUP then
+        entityType, variant, subtype = morph_pickup_spawn(virtualRoom, variant, subtype)
     end
 
-    if type == EntityType.ENTITY_SLOT then
-        type, variant, subtype = morph_slot_spawn(variant, subtype, seed)
+    if entityType == EntityType.ENTITY_SLOT then
+        entityType, variant, subtype = morph_slot_spawn(variant, subtype, seed)
     end
 
-    if 1 <= type and type <= 999 then
-        type, variant = RedirectNPC(virtualRoom, type, variant)
+    if 1 <= entityType and entityType <= 999 then
+        entityType, variant = RedirectNPC(virtualRoom, entityType, variant)
     end
 
-    if virtualRoom.roomType == RoomType.ROOM_SECRET_EXIT or not has_room_config_flags(virtualRoom.roomDescriptor.Data, 1 << 0) then
-        return type, variant, subtype
+    if virtualRoom.m_RoomType == RoomType.ROOM_SECRET_EXIT or not has_room_config_flags(virtualRoom.m_RoomDescriptor.Data, 1 << 0) then
+        return entityType, variant, subtype
     end
 
-    type, variant, subtype = morph_npc_spawn(virtualRoom, type, variant, subtype, gridIdx, rng)
-    return type, variant, subtype
+    entityType, variant, subtype = morph_npc_spawn(virtualRoom, entityType, variant, subtype, gridIdx, rng)
+    return entityType, variant, subtype
 end
 
 --#endregion

@@ -10,6 +10,22 @@ local g_EntityConfig = EntityConfig
 
 --#endregion
 
+local s_GreedItemPool = {
+    [ItemPoolType.POOL_TREASURE] = ItemPoolType.POOL_GREED_TREASURE,
+    [ItemPoolType.POOL_SHOP] = ItemPoolType.POOL_GREED_SHOP,
+    [ItemPoolType.POOL_BOSS] = ItemPoolType.POOL_GREED_BOSS,
+    [ItemPoolType.POOL_DEVIL] = ItemPoolType.POOL_GREED_DEVIL,
+    [ItemPoolType.POOL_ANGEL] = ItemPoolType.POOL_GREED_ANGEL,
+    [ItemPoolType.POOL_SECRET] = ItemPoolType.POOL_GREED_SECRET,
+    [ItemPoolType.POOL_CURSE] = ItemPoolType.POOL_GREED_CURSE,
+}
+
+---@param poolType ItemPoolType | integer
+---@return ItemPoolType | integer
+local function GetGreedModePool(poolType)
+    return s_GreedItemPool[poolType] or poolType
+end
+
 ---@param spawn RoomConfig_Spawn
 ---@return RoomConfig_Entry?
 local function get_highest_weight_entry(spawn)
@@ -58,10 +74,11 @@ local function get_gold_treasure_room_idx(level)
     return g_Game:IsGreedMode() and 85 or -1
 end
 
----@param roomDesc RoomDescriptor
+---@param roomData RoomConfigRoom
+---@param descFlags integer
+---@param gridIndex GridRooms | integer
 ---@param boss BossType | integer
-local function get_pool_room_type(roomDesc, boss)
-    local roomData = roomDesc.Data
+local function get_pool_room_type(roomData, descFlags, gridIndex, boss)
     local roomType = roomData.Type
 
     if roomType == RoomType.ROOM_BOSS and boss == 0 then
@@ -77,11 +94,11 @@ local function get_pool_room_type(roomDesc, boss)
     end
 
     if roomType == RoomType.ROOM_TREASURE then
-        if g_Game:IsGreedMode() and roomDesc.GridIndex ~= get_gold_treasure_room_idx(g_Level) then
+        if g_Game:IsGreedMode() and gridIndex ~= get_gold_treasure_room_idx(g_Level) then
             return RoomType.ROOM_BOSS
         end
 
-        if roomDesc.Flags & RoomDescriptor.FLAG_DEVIL_TREASURE ~= 0 then
+        if descFlags & RoomDescriptor.FLAG_DEVIL_TREASURE ~= 0 then
             return RoomType.ROOM_DEVIL
         end
     end
@@ -94,17 +111,26 @@ local function get_pool_room_type(roomDesc, boss)
 end
 
 ---@param seed integer
----@param roomDesc RoomDescriptor
+---@param roomData RoomConfigRoom
+---@param descFlags integer
+---@param gridIndex GridRooms | integer
 ---@param boss BossType | integer
 ---@return ItemPoolType | integer
-local function GetPoolForRoom(seed, roomDesc, boss)
-    local roomData = roomDesc.Data
+local function GetPoolForRoomData(seed, roomData, descFlags, gridIndex, boss)
     if roomData.Type == RoomType.ROOM_DEFAULT and roomData.StageID == StbType.HOME and roomData.Subtype == 2 then
         return ItemPoolType.POOL_MOMS_CHEST
     end
 
-    local roomType = get_pool_room_type(roomDesc, boss)
+    local roomType = get_pool_room_type(roomData, descFlags, gridIndex, boss)
     return g_ItemPool:GetPoolForRoom(roomType, seed)
+end
+
+---@param seed integer
+---@param roomDesc RoomDescriptor
+---@param boss BossType | integer
+---@return ItemPoolType | integer
+local function GetPoolForRoom(seed, roomDesc, boss)
+    return GetPoolForRoomData(seed, roomDesc.Data, roomDesc.Flags, roomDesc.GridIndex, boss)
 end
 
 ---@param roomDescriptor RoomDescriptor
@@ -122,6 +148,8 @@ end
 
 --#region Module
 
+Lib_ItemPool.GetGreedModePool = GetGreedModePool
+Lib_ItemPool.GetPoolForRoomData = GetPoolForRoomData
 Lib_ItemPool.GetPoolForRoom = GetPoolForRoom
 Lib_ItemPool.GetSeededCollectible = GetSeededCollectible
 

@@ -4,12 +4,12 @@ local PickupInitializer = {}
 --#region Dependencies
 
 local Lib = {
-    Table = require("dataminer_rework_src.lib.table"),
-    Room = require("dataminer_rework_src.lib.room"),
-    EntityPickup = require("dataminer_rework_src.lib.entity_pickup"),
-    PlayerManager = require("dataminer_rework_src.lib.player_manager"),
-    ItemConfig = require("dataminer_rework_src.lib.item_config"),
-    WeightedOutcomePicker = require("dataminer_rework_src.lib.weighted_outcome_picker")
+    Table = require("lib.table"),
+    Room = require("lib.room"),
+    EntityPickup = require("lib.entity_pickup"),
+    PlayerManager = require("lib.player_manager"),
+    ItemConfig = require("lib.item_config"),
+    WeightedOutcomePicker = require("lib.weighted_outcome_picker")
 }
 
 local g_Game = Game()
@@ -20,45 +20,42 @@ local g_PlayerManager = PlayerManager
 local g_ItemConfig = Isaac.GetItemConfig()
 local g_PersistentGameData = Isaac.GetPersistentGameData()
 
-local EntityRedirection = require("dataminer_rework_src.datamining.entity_redirection")
-local VirtualRoom = require("dataminer_rework_src.datamining.virtual_room")
-local CustomCallback = require("dataminer_rework_src.callbacks")
+local EntityRedirection = require("datamining.entity_redirection")
+local VirtualRoomQueries = require("datamining.virtual_room_queries")
+local Shop = require("datamining.virtual_shop")
+local CustomCallbacks = require("callbacks")
 
 --#endregion
 
 ---@class VirtualPickup
----@field room VirtualRoom
----@field type integer
----@field variant integer
----@field subtype integer
----@field initSeed integer
----@field dropRNG RNG
----@field sprite Sprite
----@field flags EntityFlag | integer
----@field price PickupPrice | integer
----@field shopItemId integer
----@field priceSprite Sprite
----@field optionsCycles CollectibleType[] | integer[]
----@field flipCollectible CollectibleType | integer | nil
+---@field m_Room VirtualRoom
+---@field m_Type integer
+---@field Variant integer
+---@field SubType integer
+---@field InitSeed integer
+---@field m_DropRNG RNG
+---@field m_Flags EntityFlag | integer
+---@field Price PickupPrice | integer
+---@field ShopItemId integer
+---@field m_OptionsCycles CollectibleType[] | integer[]
+---@field m_FlipCollectible CollectibleType | integer | nil
 
 ---@return VirtualPickup
-local function NewVirtualPickup()
+local function CreateVirtualPickup()
     ---@type VirtualPickup
     local virtualPickup = {
 ---@diagnostic disable-next-line: assign-type-mismatch
-        room = nil,
-        type = EntityType.ENTITY_PICKUP,
-        variant = 0,
-        subtype = 0,
-        initSeed = 0,
-        dropRNG = RNG(),
-        sprite = Sprite(),
-        flags = 0,
-        price = 0,
-        shopItemId = 0,
-        priceSprite = Sprite(),
-        optionsCycles = {},
-        flipCollectible = nil,
+        m_Room = nil,
+        m_Type = EntityType.ENTITY_PICKUP,
+        Variant = 0,
+        SubType = 0,
+        InitSeed = 0,
+        m_DropRNG = RNG(),
+        m_Flags = 0,
+        Price = 0,
+        ShopItemId = 0,
+        m_OptionsCycles = {},
+        m_FlipCollectible = nil,
     }
 
     return virtualPickup
@@ -368,12 +365,12 @@ local function select_heart(io)
         heartType = HeartSubType.HEART_GOLDEN
     end
 
-    if g_PlayerManager.AnyoneHasTrinket(TrinketType.TRINKET_DAEMONS_TAIL) and io.room.roomType ~= RoomType.ROOM_SUPERSECRET then
+    if g_PlayerManager.AnyoneHasTrinket(TrinketType.TRINKET_DAEMONS_TAIL) and io.room.m_RoomType ~= RoomType.ROOM_SUPERSECRET then
         heartType = HeartSubType.HEART_BLACK
     end
 
-    if io.room.roomType == RoomType.ROOM_SUPERSECRET then
-        heartType = Lib.Room.GetSuperSecretHeartType(io.room.roomDescriptor) or heartType
+    if io.room.m_RoomType == RoomType.ROOM_SUPERSECRET then
+        heartType = Lib.Room.GetSuperSecretHeartType(io.room.m_RoomDescriptor.Data) or heartType
     elseif heartType == HeartSubType.HEART_HALF and g_PlayerManager.AnyoneHasTrinket(TrinketType.TRINKET_MOMS_LOCKET) then
         heartType = HeartSubType.HEART_FULL
     end
@@ -498,7 +495,7 @@ end
 ---@param virtualRoom VirtualRoom
 ---@return boolean
 local function can_spawn_haunted_chest(virtualRoom)
-    local roomShape = virtualRoom.roomDescriptor.Data.Shape
+    local roomShape = virtualRoom.m_RoomDescriptor.Data.Shape
     return EntityRedirection.IsBasePickupAvailable(PickupVariant.PICKUP_HAUNTEDCHEST, 0) and roomShape ~= RoomShape.ROOMSHAPE_IH and roomShape ~= RoomShape.ROOMSHAPE_IV
         and roomShape ~= RoomShape.ROOMSHAPE_IIV and roomShape ~= RoomShape.ROOMSHAPE_IIH
 end
@@ -664,7 +661,7 @@ local function select_collectible(io)
         return
     end
 
-    io.subType = VirtualRoom.GetSeededCollectible(io.room, io.rng:Next(), not io.advanceRNG)
+    io.subType = VirtualRoomQueries.GetSeededCollectible(io.room, io.rng:Next(), not io.advanceRNG)
 end
 
 ---@param io Switch.SelectSubTypeIO
@@ -905,7 +902,7 @@ local function apply_nuh_uh_selection_modifier(variant, subType, rng, advanceRNG
         return nil, nil -- The original returns -1 here and makes the SelectPickupType function fail
     end
 
-    return PickupInitializer.SelectPickupType(rng:Next(), newVariant, 0, advanceRNG, shopItem, ignoreModifiers, virtualRoom)
+    return PickupInitializer.select_pickup_type(rng:Next(), newVariant, 0, advanceRNG, shopItem, ignoreModifiers, virtualRoom)
 end
 
 ---@param seed integer
@@ -974,7 +971,7 @@ local s_SelectPickupTypeRecursiveCount = 0
 ---@param virtualRoom VirtualRoom
 ---@return PickupVariant | integer | nil newVariant
 ---@return integer? newSubType
-local function SelectPickupType(seed, variant, subType, advanceRNG, shopItem, ignoreModifiers, virtualRoom)
+local function select_pickup_type(seed, variant, subType, advanceRNG, shopItem, ignoreModifiers, virtualRoom)
     s_SelectPickupTypeRecursiveCount = s_SelectPickupTypeRecursiveCount + 1
     local rng = RNG(); rng:SetSeed(seed, 35)
 
@@ -995,7 +992,7 @@ end
 
 ---@seed integer
 ---@return boolean
-local function ShouldDoWaitWhatMorph(seed)
+local function should_do_wait_what_morph(seed)
     if not g_PersistentGameData:IsItemInCollection(CollectibleType.COLLECTIBLE_BUTTER_BEAN) then
         return false
     end
@@ -1043,7 +1040,7 @@ end
 ---@param baseCycleSeed integer
 ---@param bingeEaterSeed integer
 ---@return CollectibleType[]
-local function BuildCollectibleCycle(virtualRoom, baseCycleSeed, bingeEaterSeed)
+local function build_collectible_cycle(virtualRoom, baseCycleSeed, bingeEaterSeed)
     local cycles = {}
     local rng = RNG(baseCycleSeed, 38)
 
@@ -1051,7 +1048,7 @@ local function BuildCollectibleCycle(virtualRoom, baseCycleSeed, bingeEaterSeed)
 
     -- There should be another check for CanReroll here (most likely because the function was split into multiple smaller functions)
     for i = 1, cycleNum, 1 do
-        table.insert(cycles, VirtualRoom.GetSeededCollectible(virtualRoom, rng:Next(), false))
+        table.insert(cycles, VirtualRoomQueries.GetSeededCollectible(virtualRoom, rng:Next(), false))
     end
 
     if g_PlayerManager.AnyoneHasCollectible(CollectibleType.COLLECTIBLE_BINGE_EATER) then
@@ -1064,17 +1061,17 @@ end
 ---@param virtualRoom VirtualRoom
 ---@param seed integer
 ---@return boolean
-local function ShouldGlitchCollectible(virtualRoom, seed)
-    if VirtualRoom.GetFrameCount(virtualRoom) >= 2 or not g_PersistentGameData:Unlocked(Achievement.CORRUPTED_DATA) then
+local function should_glitch_collectible(virtualRoom, seed)
+    if VirtualRoomQueries.GetFrameCount(virtualRoom) >= 2 or not g_PersistentGameData:Unlocked(Achievement.CORRUPTED_DATA) then
         return false
     end
 
-    if virtualRoom.roomType == RoomType.ROOM_ERROR then
+    if virtualRoom.m_RoomType == RoomType.ROOM_ERROR then
         local rng = RNG(seed, 11)
         return rng:RandomInt(16) == 0
     end
 
-    if virtualRoom.roomType == RoomType.ROOM_SECRET then
+    if virtualRoom.m_RoomType == RoomType.ROOM_SECRET then
         local rng = RNG(seed, 11)
         return rng:RandomInt(60) == 0
     end
@@ -1085,8 +1082,8 @@ end
 ---@param virtualPickup VirtualPickup
 ---@param virtualRoom VirtualRoom
 ---@return boolean
-local function ShouldForcePrice(virtualPickup, virtualRoom)
-    if g_Seeds:HasSeedEffect(SeedEffect.SEED_ITEMS_COST_MONEY) and not Lib.EntityPickup.IsChest(virtualPickup.variant) then
+local function should_force_price(virtualPickup, virtualRoom)
+    if g_Seeds:HasSeedEffect(SeedEffect.SEED_ITEMS_COST_MONEY) and not Lib.EntityPickup.IsChest(virtualPickup.Variant) then
         return true
     end
 
@@ -1094,11 +1091,11 @@ local function ShouldForcePrice(virtualPickup, virtualRoom)
         return false
     end
 
-    if not g_PlayerManager.AnyoneIsPlayerType(PlayerType.PLAYER_KEEPER_B) or virtualPickup.variant ~= PickupVariant.PICKUP_COLLECTIBLE then
+    if not g_PlayerManager.AnyoneIsPlayerType(PlayerType.PLAYER_KEEPER_B) or virtualPickup.Variant ~= PickupVariant.PICKUP_COLLECTIBLE then
         return false
     end
 
-    if virtualPickup.price ~= 0 or virtualRoom.isInitialized or Lib.ItemConfig.IsQuestItem(g_ItemConfig, virtualPickup.subtype) then
+    if virtualPickup.Price ~= 0 or virtualRoom.m_IsInitialized or Lib.ItemConfig.IsQuestItem(g_ItemConfig, virtualPickup.SubType) then
         return false
     end
 
@@ -1109,86 +1106,130 @@ end
 
 --#region Init
 
----@param virtualEntity VirtualPickup
----@param type EntityType | integer
----@param variant integer
+---@param shop VirtualShop
+---@param variant PickupVariant | integer
 ---@param subtype integer
----@param seed integer
-local function init_virtual_entity(virtualEntity, type, variant, subtype, seed)
-    -- TODO
+---@param shopItemId integer
+---@return integer|PickupPrice
+local function GetShopItemPrice(shop, variant, subtype, shopItemId)
+    local price = Shop.GetShopItemPrice(shop, variant, subtype, shopItemId)
+    price = Shop.TryGetShopDiscount(shop, shopItemId, price)
+    return price
 end
 
 ---@param virtualPickup VirtualPickup
----@param type EntityType
+---@param virtualRoom VirtualRoom
+---@param seed integer
+---@return ShopItemData
+local function make_shop_item(virtualPickup, virtualRoom, seed)
+    local advanceRNG = false
+
+    local shopItemData = Shop.MakeShopItem(virtualRoom.m_Shop, seed)
+    local shopVariant, shopSubtype = select_pickup_type(seed, shopItemData.variant, shopItemData.subtype, advanceRNG, true, ShouldIgnoreModifiers(), virtualRoom)
+    if not ((shopVariant and shopVariant ~= shopItemData.variant) or (shopSubtype and shopSubtype ~= shopItemData.subtype)) then
+        return shopItemData
+    end
+
+    ---@cast shopVariant integer
+    ---@cast shopSubtype integer
+    shopItemData.variant = shopVariant
+    shopItemData.subtype = shopSubtype
+    shopItemData.price = GetShopItemPrice(virtualRoom.m_Shop, shopItemData.variant, shopItemData.subtype, virtualPickup.ShopItemId)
+    return shopItemData
+end
+
+---@param virtualEntity VirtualPickup
+---@param entityType EntityType | integer
+---@param variant integer
+---@param subtype integer
+---@param seed integer
+local function init_virtual_entity(virtualEntity, entityType, variant, subtype, seed)
+    virtualEntity.m_Type = entityType
+    virtualEntity.Variant = variant
+    virtualEntity.SubType = subtype
+    virtualEntity.InitSeed = seed
+    virtualEntity.m_DropRNG = RNG(seed, 30)
+end
+
+---@param virtualPickup VirtualPickup
+---@param entityType EntityType
 ---@param variant PickupVariant
 ---@param subtype integer
 ---@param seed integer
 ---@param virtualRoom VirtualRoom
 ---@return boolean
-local function InitVirtualPickup(virtualPickup, type, variant, subtype, seed, virtualRoom)
-    virtualPickup.room = virtualRoom
-    virtualPickup.optionsCycles = {}
-    virtualPickup.flipCollectible = nil
+local function InitVirtualPickup(virtualPickup, entityType, variant, subtype, seed, virtualRoom)
+    virtualPickup.m_Room = virtualRoom
+    virtualPickup.m_OptionsCycles = {}
+    virtualPickup.m_FlipCollectible = nil
 
     local rng = RNG(seed, 35)
 
     local advanceRNG = false
-    local selectedVariant, selectedSubtype = SelectPickupType(seed, variant, subtype, advanceRNG, false, ShouldIgnoreModifiers(), virtualRoom)
+    local selectedVariant, selectedSubtype = select_pickup_type(seed, variant, subtype, advanceRNG, false, ShouldIgnoreModifiers(), virtualRoom)
     if not selectedVariant then
         return false -- In this specific instance a fly is spawned and the pickup is removed
     end
 
-    ---@cast selectedSubtype integer
     if selectedVariant == PickupVariant.PICKUP_SHOPITEM then
-        rng:Next()
-        -- TODO
+        local shopItem = make_shop_item(virtualPickup, virtualRoom, rng:Next())
+        selectedVariant = shopItem.variant
+        selectedSubtype = shopItem.subtype
+        virtualPickup.ShopItemId = shopItem.shopItemIdx
+        virtualPickup.Price = shopItem.price
     end
+
+    ---@cast selectedVariant integer | PickupVariant
+    ---@cast selectedSubtype integer
 
     if selectedVariant == PickupVariant.PICKUP_COLLECTIBLE then
         local collectibleConfig = g_ItemConfig:GetCollectible(selectedSubtype)
         if not collectibleConfig then
-            selectedSubtype = VirtualRoom.GetSeededCollectible(virtualRoom, seed, false)
+            selectedSubtype = VirtualRoomQueries.GetSeededCollectible(virtualRoom, seed, false)
         end
 
-        if not ShouldIgnoreModifiers() and selectedSubtype == CollectibleType.COLLECTIBLE_BUTTER_BEAN and ShouldDoWaitWhatMorph(g_Seeds:GetStartSeed()) then
+        if not ShouldIgnoreModifiers() and selectedSubtype == CollectibleType.COLLECTIBLE_BUTTER_BEAN and should_do_wait_what_morph(g_Seeds:GetStartSeed()) then
             selectedSubtype = CollectibleType.COLLECTIBLE_WAIT_WHAT
         end
     end
 
-    selectedVariant, selectedSubtype = CustomCallback.RunPostPickupSelection(virtualPickup, selectedVariant, selectedSubtype, variant, subtype, seed)
+    selectedVariant, selectedSubtype = CustomCallbacks.RunPostPickupSelection(virtualPickup, selectedVariant, selectedSubtype, variant, subtype, seed)
 
     if selectedVariant == PickupVariant.PICKUP_BOMB and not (selectedSubtype == BombSubType.BOMB_TROLL or selectedSubtype == BombSubType.BOMB_SUPERTROLL) and Lib.PlayerManager.AllPlayersType(g_PlayerManager, {PlayerType.PLAYER_BLUEBABY_B}) then
         selectedVariant = PickupVariant.PICKUP_POOP
         selectedSubtype = 1
     end
 
-    init_virtual_entity(virtualPickup, type, selectedVariant, selectedSubtype, seed)
+    init_virtual_entity(virtualPickup, entityType, selectedVariant, selectedSubtype, seed)
 
-    if virtualPickup.variant == PickupVariant.PICKUP_COLLECTIBLE then
-        if not ShouldIgnoreModifiers() and virtualPickup.price == 0 and g_PlayerManager.AnyoneHasCollectible(CollectibleType.COLLECTIBLE_DAMOCLES_PASSIVE) then
-            virtualPickup.flags = virtualPickup.flags | EntityFlag.FLAG_ITEM_SHOULD_DUPLICATE
-            virtualRoom.damoclesItemSpawned = true
+    if virtualPickup.Variant == PickupVariant.PICKUP_COLLECTIBLE then
+        if not ShouldIgnoreModifiers() and virtualPickup.Price == 0 and g_PlayerManager.AnyoneHasCollectible(CollectibleType.COLLECTIBLE_DAMOCLES_PASSIVE) then
+            virtualPickup.m_Flags = virtualPickup.m_Flags | EntityFlag.FLAG_ITEM_SHOULD_DUPLICATE
+            virtualRoom.m_DamoclesItemSpawned = true
         end
 
-        if not ShouldIgnoreModifiers() and Lib.EntityPickup.CanReroll(virtualPickup.variant, virtualPickup.subtype) then
-            virtualPickup.optionsCycles = BuildCollectibleCycle(virtualRoom, virtualPickup.dropRNG:GetSeed(), seed)
+        if not ShouldIgnoreModifiers() and Lib.EntityPickup.CanReroll(virtualPickup.Variant, virtualPickup.SubType) then
+            virtualPickup.m_OptionsCycles = build_collectible_cycle(virtualRoom, virtualPickup.m_DropRNG:GetSeed(), seed)
 
-            if ShouldGlitchCollectible(virtualRoom, seed) then
-                virtualPickup.flags = virtualPickup.flags | EntityFlag.FLAG_GLITCH
+            if should_glitch_collectible(virtualRoom, seed) then
+                virtualPickup.m_Flags = virtualPickup.m_Flags | EntityFlag.FLAG_GLITCH
             end
         end
     end
 
-    if ShouldForcePrice(virtualPickup, virtualRoom) then
-        virtualPickup.shopItemId = -1
-        -- TODO
+    if should_force_price(virtualPickup, virtualRoom) then
+        virtualPickup.ShopItemId = -1
+        virtualPickup.Price = GetShopItemPrice(virtualRoom.m_Shop, virtualPickup.Variant, virtualPickup.SubType, virtualPickup.ShopItemId)
     end
 
-    if virtualPickup.variant == PickupVariant.PICKUP_HEART and g_Game.Challenge == Challenge.CHALLENGE_ULTRA_HARD then
+    if virtualPickup.Variant == PickupVariant.PICKUP_HEART and g_Game.Challenge == Challenge.CHALLENGE_ULTRA_HARD then
         return false
     end
 
-    CustomCallback.RunPostPickupInit(virtualPickup)
+    CustomCallbacks.RunPostPickupInit(virtualPickup)
+    if virtualPickup.Variant == PickupVariant.PICKUP_COLLECTIBLE and (virtualPickup.m_Flags & EntityFlag.FLAG_ITEM_SHOULD_DUPLICATE) ~= 0 then
+        table.insert(virtualRoom.m_DamoclesItems, virtualPickup)
+    end
     return true
 end
 
@@ -1196,16 +1237,17 @@ end
 
 --#region Module
 
-PickupInitializer.NewVirtualPickup = NewVirtualPickup
+PickupInitializer.CreateVirtualPickup = CreateVirtualPickup
+PickupInitializer.InitVirtualPickup = InitVirtualPickup
 PickupInitializer.ShouldIgnoreModifiers = ShouldIgnoreModifiers
 PickupInitializer.BeginIgnoreModifiers = BeginIgnoreModifiers
 PickupInitializer.EndIgnoreModifiers = EndIgnoreModifiers
-PickupInitializer.SelectPickupType = SelectPickupType
-PickupInitializer.ShouldDoWaitWhatMorph = ShouldDoWaitWhatMorph
-PickupInitializer.BuildCollectibleCycle = BuildCollectibleCycle
-PickupInitializer.ShouldGlitchCollectible = ShouldGlitchCollectible
-PickupInitializer.ShouldForcePrice = ShouldForcePrice
-PickupInitializer.InitVirtualPickup = InitVirtualPickup
+PickupInitializer.GetShopItemPrice = GetShopItemPrice
+PickupInitializer.select_pickup_type = select_pickup_type
+PickupInitializer.should_do_wait_what_morph = should_do_wait_what_morph
+PickupInitializer.build_collectible_cycle = build_collectible_cycle
+PickupInitializer.should_glitch_collectible = should_glitch_collectible
+PickupInitializer.should_force_price = should_force_price
 
 --#endregion
 
