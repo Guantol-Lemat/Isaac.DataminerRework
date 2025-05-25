@@ -429,19 +429,6 @@ local function get_spawn_boss_id(spawn)
 end
 
 ---@param roomData RoomConfigRoom
-local function get_room_boss_id(roomData)
-    local spawns = roomData.Spawns
-    for i = roomData.SpawnCount - 1, 0, -1 do
-        local bossId = get_spawn_boss_id(spawns:Get(i))
-        if bossId ~= 0 then
-            return bossId
-        end
-    end
-
-    return 0
-end
-
----@param roomData RoomConfigRoom
 ---@return integer|BossType
 ---@return integer|BossType
 local function GetBossID(roomData)
