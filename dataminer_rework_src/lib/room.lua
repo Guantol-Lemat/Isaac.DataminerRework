@@ -6,6 +6,7 @@ local Lib_Room = {}
 local g_Game = Game()
 local g_Level = g_Game:GetLevel()
 local g_PlayerManager = PlayerManager
+local g_EntityConfig = EntityConfig
 
 local Lib = {
     Table = require("lib.table"),
@@ -396,6 +397,75 @@ local function GetAngelRoomChance()
     return Lib.Math.Clamp(chance, 0.0, 1.0)
 end
 
+---@param spawn RoomConfig_Spawn
+---@return RoomConfig_Entry?
+local function get_highest_weight_entry(spawn)
+    local bestWeight = 0.0
+    local highestEntry = nil
+
+    local entries = spawn.Entries
+    for i = 0, spawn.EntryCount - 1, 1 do
+        ---@type RoomConfig_Entry
+---@diagnostic disable-next-line: assign-type-mismatch
+        local entry = entries:Get(i)
+        if entry.Weight >= bestWeight then
+            bestWeight = entry.Weight
+            highestEntry = entry
+        end
+    end
+
+    return highestEntry
+end
+
+---@param spawn RoomConfig_Spawn
+---@return BossType | integer
+local function get_spawn_boss_id(spawn)
+    local entry = get_highest_weight_entry(spawn)
+    if not entry then
+        return 0
+    end
+
+    return g_EntityConfig.GetEntity(entry.Type, entry.Variant, entry.Subtype):GetBossID()
+end
+
+---@param roomData RoomConfigRoom
+local function get_room_boss_id(roomData)
+    local spawns = roomData.Spawns
+    for i = roomData.SpawnCount - 1, 0, -1 do
+        local bossId = get_spawn_boss_id(spawns:Get(i))
+        if bossId ~= 0 then
+            return bossId
+        end
+    end
+
+    return 0
+end
+
+---@param roomData RoomConfigRoom
+---@return integer|BossType
+---@return integer|BossType
+local function GetBossID(roomData)
+    local bossId = 0
+    local secondBossId = 0
+
+    local spawns = roomData.Spawns
+    for i = roomData.SpawnCount - 1, 0, -1 do
+        local currentBossId = get_spawn_boss_id(spawns:Get(i))
+        if currentBossId == 0 then
+            goto continue
+        end
+
+        if bossId == 0 then
+            bossId = currentBossId
+        elseif currentBossId ~= bossId then
+            secondBossId = currentBossId
+        end
+        ::continue::
+    end
+
+    return bossId, secondBossId
+end
+
 --#region Module
 
 Lib_Room.GetGridPosition = GetGridPosition
@@ -404,6 +474,7 @@ Lib_Room.ShouldSaveEntity = ShouldSaveEntity
 Lib_Room.IsPersistentRoomEntity = IsPersistentRoomEntity
 Lib_Room.GetSuperSecretHeartType = GetSuperSecretHeartType
 Lib_Room.GetAngelRoomChance = GetAngelRoomChance
+Lib_Room.GetBossID = GetBossID
 
 --#endregion
 

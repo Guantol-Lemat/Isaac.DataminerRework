@@ -24,6 +24,8 @@ local CustomCallbacks = require("callbacks")
 ---@field m_Height integer
 ---@field m_DoorGridIdx integer[]
 ---@field m_TintedRockIdx integer
+---@field m_BossID BossType | integer
+---@field m_SecondBossID BossType | integer
 ---@field m_LayoutData LayoutData
 ---@field m_DamoclesItemSpawned boolean
 ---@field m_DamoclesItems VirtualPickup[] -- List of damocles items specifically since we do not care of keeping track of all initialized entities in the virtual room
@@ -45,6 +47,8 @@ local function reset(virtualRoom)
     virtualRoom.m_Height = 0
     virtualRoom.m_DoorGridIdx = {}
     virtualRoom.m_TintedRockIdx = -1
+    virtualRoom.m_BossID = 0
+    virtualRoom.m_SecondBossID = 0
     virtualRoom.m_LayoutData = {entities = {}, gridEntities = {}}
     virtualRoom.m_DamoclesItemSpawned = false
     virtualRoom.m_DamoclesItems = {}
@@ -93,6 +97,13 @@ local function init_room_metadata(virtualRoom, roomDesc, roomData)
 
     virtualRoom.m_RoomDescriptor = roomDesc
     virtualRoom.m_RoomType = roomDesc.Data.Type
+
+    virtualRoom.m_BossID = 0
+    virtualRoom.m_SecondBossID = 0
+    if virtualRoom.m_RoomType == RoomType.ROOM_BOSS then
+        virtualRoom.m_BossID, virtualRoom.m_SecondBossID = Lib.Room.GetBossID(roomDesc.Data)
+    end
+
     virtualRoom.m_RoomIdx = roomDesc.SafeGridIndex
 end
 
