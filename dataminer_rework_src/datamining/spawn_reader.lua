@@ -6,29 +6,6 @@ local SpawnReader = {}
 ---@field Variant integer
 ---@field Subtype integer
 
----@class SpawnDesc
----@field spawnType integer 0 for nothing 1 for entities, 2 for gridEntity
----@field entityDesc EntitySpawnDesc | GridSpawnDesc | nil
----@field addOutput boolean?
----@field initRail boolean?
-
----@class EntitySpawnDesc
----@field type EntityType | integer
----@field variant integer
----@field subType integer
----@field position Vector
----@field initSeed integer
-
----@class GridSpawnDesc
----@field type GridEntityType | integer
----@field variant integer
----@field varData integer
----@field spawnSeed integer
----@field spawnFissureSpawner boolean
----@field fissureSpawnerSeed integer -- Technically unneeded, but just in case
----@field increasePoopCount boolean
----@field increasePitCount boolean
-
 local STB_EFFECT = 999
 local GRID_FIREPLACE = 1400
 local GRID_FIREPLACE_RED = 1401
@@ -37,20 +14,17 @@ local GRID_FIREPLACE_RED = 1401
 
 local g_Game = Game()
 local g_Level = g_Game:GetLevel()
-local g_PlayerManager = PlayerManager
----@diagnostic disable-next-line: undefined-global
-local g_BossPool = BossPoolManager
 local g_Seeds = g_Game:GetSeeds()
 local g_PersistentGameData = Isaac.GetPersistentGameData()
 
 local Lib = {
-    Grid = require("lib.grid"),
     Level = require("lib.level"),
     Room = require("lib.room"),
-    PlayerManager = require("lib.player_manager"),
 }
 
 local EntityRedirection = require("datamining.entity_redirection")
+local SpawnMorph = require("datamining.spawn_systems.spawn_morph")
+local SpawnCommandsUtils = require("datamining.spawn_commands")
 
 --#endregion
 
@@ -61,7 +35,20 @@ local function has_room_config_flags(roomData, flags)
     return false -- inaccessible
 end
 
---#region Fix SpawnEntry
+---@param spawnEntry SpawnEntry
+---@param morphEntry MorphEntry?
+---@return boolean
+local function try_morph(spawnEntry, morphEntry)
+    if not morphEntry then
+        return false
+    end
+
+    spawnEntry.Type = morphEntry.Type or spawnEntry.Type
+    spawnEntry.Variant = morphEntry.Variant or spawnEntry.Variant
+    spawnEntry.Subtype = morphEntry.Subtype or spawnEntry.Subtype
+
+    return true
+end
 
 --#region SpawnEntry Block
 
@@ -75,7 +62,7 @@ end
 ---@param roomData RoomConfigRoom
 ---@param spawnEntry SpawnEntry
 ---@param respawning boolean
-local function try_block_spawn(roomDesc, roomData, spawnEntry, respawning)
+local function block_spawn(roomDesc, roomData, spawnEntry, respawning)
     if spawnEntry.Type == EntityType.ENTITY_PICKUP and spawnEntry.Variant == PickupVariant.PICKUP_COLLECTIBLE and
        roomDesc.SafeGridIndex == GridRooms.ROOM_GENESIS_IDX then
         return true
@@ -97,90 +84,7 @@ end
 
 --#endregion
 
---#region SpawnEntry Morph
-
----@param roomData RoomConfigRoom
----@param spawnEntry SpawnEntry
----@param rng RNG
-local function try_rock_dangerous_morph(roomData, spawnEntry, rng)
-    if not (g_Level:GetStageType() == StageType.STAGETYPE_AFTERBIRTH and roomData.Type == RoomType.ROOM_DEFAULT) then
-        return
-    end
-
-    if rng:RandomInt(10) ~= 0 then
-        return
-    end
-
-    local stage = g_Level:GetStage()
-
-    if stage == LevelStage.STAGE1_1 or stage == LevelStage.STAGE1_2 then
-        spawnEntry.Type = EntityType.ENTITY_FIREPLACE
-        spawnEntry.Variant = rng:RandomInt(40) == 0 and 1 or 0
-        spawnEntry.Subtype = 0
-    elseif stage == LevelStage.STAGE2_1 or stage == LevelStage.STAGE2_2 then
-        spawnEntry.Type = StbGridType.PIT
-        spawnEntry.Variant = 0
-        spawnEntry.Subtype = 0
-    elseif stage == LevelStage.STAGE3_1 or stage == LevelStage.STAGE3_2 then
-        spawnEntry.Type = StbGridType.SPIKES
-        spawnEntry.Variant = 0
-        spawnEntry.Subtype = 0
-    elseif stage == LevelStage.STAGE4_1 or stage == LevelStage.STAGE4_2 then
-        spawnEntry.Type = StbGridType.RED_POOP
-        spawnEntry.Variant = 0
-        spawnEntry.Subtype = 0
-    end
-end
-
----@param roomData RoomConfigRoom
----@param spawnEntry SpawnEntry
----@param seed integer
----@return boolean
-local function try_dirty_mind_morph(roomData, spawnEntry, seed)
-    if roomData.Type == RoomType.ROOM_DUNGEON then
-        return false
-    end
-
-    local rng = RNG(seed, 2)
-    local randomPlayer = Lib.PlayerManager.RandomCollectibleOwner(g_PlayerManager, CollectibleType.COLLECTIBLE_DIRTY_MIND, rng:Next())[1]
-    if not randomPlayer then
-        return false
-    end
-
-    local chance = math.min(randomPlayer.Luck * 0.005 + 0.0625, 0.1)
-    if rng:RandomFloat() > chance then
-        return false
-    end
-
-    spawnEntry.Type = StbGridType.POOP
-    spawnEntry.Variant = 0
-    spawnEntry.Subtype = 0
-    return true
-end
-
----@param roomDesc VirtualRoomDescriptor
----@param roomData RoomConfigRoom
----@return boolean canSpawn
-local function can_spawn_trapdoor(roomDesc, roomData)
-    if g_Level:IsNextStageAvailable() then
-        return true
-    end
-
-    local roomType = roomData.Type
-    if roomType == RoomType.ROOM_ERROR or roomType == RoomType.ROOM_SECRET_EXIT then
-        return true
-    end
-
-    if roomDesc.SafeGridIndex == GridRooms.ROOM_GENESIS_IDX then
-        return true
-    end
-
-    if (roomType == RoomType.ROOM_BOSS and roomData.Subtype == BossType.MOTHER) then
-        return true
-    end
-
-    return false
-end
+--#region Morph Spawn
 
 ---@param virtualRoom VirtualRoom
 ---@param spawnEntry SpawnEntry
@@ -196,7 +100,7 @@ end
 ---@param spawnEntry SpawnEntry
 ---@param rng RNG
 ---@param gridIdx integer
-local function try_morph_spawn(virtualRoom, roomDesc, roomData, spawnEntry, gridIdx, rng)
+local function morph_spawn(virtualRoom, roomDesc, roomData, spawnEntry, gridIdx, rng)
     if spawnEntry.Type == StbGridType.ROCK and virtualRoom.m_TintedRockIdx == gridIdx then
         return
     end
@@ -205,61 +109,39 @@ local function try_morph_spawn(virtualRoom, roomDesc, roomData, spawnEntry, grid
 
     local dangerousGridMorph = has_room_config_flags(roomData, 1 << 3)
     if dangerousGridMorph and can_morph_rock_entry(virtualRoom, spawnEntry, gridIdx) then
-        try_rock_dangerous_morph(roomData, spawnEntry, rng)
+        try_morph(spawnEntry, SpawnMorph.DangerousRockMorph(roomData, rng))
     end
 
     if can_morph_rock_entry(virtualRoom, spawnEntry, gridIdx) then
-        if try_dirty_mind_morph(roomData, spawnEntry, rockSeed) then
-            return
-        end
+        try_morph(spawnEntry, SpawnMorph.DirtyMindMorph(roomData, rockSeed))
     end
 
-    if spawnEntry.Type == StbGridType.TNT and rng:RandomInt(10) == 0 then
-        spawnEntry.Type = EntityType.ENTITY_MOVABLE_TNT
-        spawnEntry.Variant = 0
-        spawnEntry.Subtype = 0
-        return
+    if spawnEntry.Type == StbGridType.TNT then
+        try_morph(spawnEntry, SpawnMorph.TntMorph(rng))
     end
 
     if (spawnEntry.Type == StbGridType.TRAP_DOOR or (spawnEntry.Type == STB_EFFECT and spawnEntry.Variant == EffectVariant.HEAVEN_LIGHT_DOOR)) then
-        if not can_spawn_trapdoor(roomDesc, roomData) then
-            spawnEntry.Type = StbGridType.COBWEB
-            spawnEntry.Variant = 0
-            spawnEntry.Subtype = 0
-            return
+        try_morph(spawnEntry, SpawnMorph.TrapdoorMorph(roomDesc, roomData))
+    end
+
+    if spawnEntry.Type == EntityType.ENTITY_SHOPKEEPER and spawnEntry.Variant == 0 then
+        if spawnEntry.Variant == 0 then
+            try_morph(spawnEntry, SpawnMorph.ShopkeeperMorph(rng))
         end
 
-        if g_Level:HasMirrorDimension() and roomDesc.m_Dimension == Dimension.KNIFE_PUZZLE then
-            spawnEntry.Type = StbGridType.DECORATION
-            spawnEntry.Variant = 0
-            spawnEntry.Subtype = 0
-            return
+        if spawnEntry.Variant == 1 then
+            try_morph(spawnEntry, SpawnMorph.HangingShopkeeperMorph(rng))
         end
     end
 
-    if spawnEntry.Type == EntityType.ENTITY_SHOPKEEPER then
-        if spawnEntry.Variant == 0 and rng:RandomInt(4) == 0 and g_PersistentGameData:Unlocked(Achievement.SPECIAL_SHOPKEEPERS) then
-            spawnEntry.Variant = 3
-        end
-
-        if spawnEntry.Variant == 1 and rng:RandomInt(4) == 0 and g_PersistentGameData:Unlocked(Achievement.SPECIAL_HANGING_SHOPKEEPERS) then
-            spawnEntry.Variant = 4
-        end
-    end
-
-    if spawnEntry.Type == StbGridType.DEVIL_STATUE and g_BossPool.GetRemovedBosses()[BossType.SATAN] then
-        spawnEntry.Type = StbGridType.ROCK
-        spawnEntry.Variant = 0
-        spawnEntry.Subtype = 1
-        return
+    if spawnEntry.Type == StbGridType.DEVIL_STATUE then
+        try_morph(spawnEntry, SpawnMorph.DevilStatueMorph())
     end
 end
 
 --#endregion
 
---#region Build SpawnDesc
-
---#region Build EntityDesc
+--#region Resolve Entity Spawn
 
 ---@param roomDesc VirtualRoomDescriptor
 ---@param roomData RoomConfigRoom
@@ -308,8 +190,8 @@ end
 ---@param spawnEntry SpawnEntry
 ---@param rng RNG
 ---@param respawning boolean
----@return SpawnDesc?
-local function build_entity_spawn(virtualRoom, roomDesc, roomData, spawnEntry, gridIdx, rng, respawning)
+---@param spawnCommands SpawnCommands
+local function resolve_entity(virtualRoom, roomDesc, roomData, spawnEntry, gridIdx, rng, respawning, spawnCommands)
     if spawnEntry.Type == STB_EFFECT then
         spawnEntry.Type = EntityType.ENTITY_EFFECT
     end
@@ -319,8 +201,11 @@ local function build_entity_spawn(virtualRoom, roomDesc, roomData, spawnEntry, g
     end
 
     if spawnEntry.Type == EntityType.ENTITY_TRIGGER_OUTPUT then
-        ---@type SpawnDesc
-        return {spawnType = 0, entityDesc = nil, addOutput = true}
+        local gridPosition = Lib.Room.GetGridPosition(gridIdx, virtualRoom.m_Width)
+        SpawnCommandsUtils.AddOutput(spawnCommands, spawnEntry.Variant, Vector(gridPosition.X - 1, gridPosition.Y))
+        SpawnCommandsUtils.AddOutput(spawnCommands, spawnEntry.Variant, Vector(gridPosition.X + 1, gridPosition.Y))
+        SpawnCommandsUtils.AddOutput(spawnCommands, spawnEntry.Variant, Vector(gridPosition.X, gridPosition.Y - 1))
+        SpawnCommandsUtils.AddOutput(spawnCommands, spawnEntry.Variant, Vector(gridPosition.X, gridPosition.Y + 1))
     end
 
     if spawnEntry.Type == EntityType.ENTITY_PICKUP and Lib.Level.IsCorpseEntrance(g_Level) then
@@ -335,16 +220,8 @@ local function build_entity_spawn(virtualRoom, roomDesc, roomData, spawnEntry, g
         return
     end
 
-    ---@type EntitySpawnDesc
-    local entityDesc = {type = spawnEntry.Type, variant = spawnEntry.Variant, subType = spawnEntry.Subtype, initSeed = rng:Next(), position = Lib.Room.GetGridPosition(gridIdx, virtualRoom.m_Width)}
-
-    ---@type SpawnDesc
-    return {spawnType = 1, entityDesc = entityDesc}
+    SpawnCommandsUtils.SpawnEntity(spawnCommands, spawnEntry.Type, spawnEntry.Variant, spawnEntry.Subtype, rng:Next(), Lib.Room.GetGridPosition(gridIdx, virtualRoom.m_Width), Vector.Zero, nil)
 end
-
---#endregion
-
---#region Build GridSpawnDesc
 
 local s_StbGridConversion = {
     [StbGridType.ROCK] = {GridEntityType.GRID_ROCK},
@@ -388,138 +265,6 @@ local s_StbGridConversion = {
     [StbGridType.GRAVITY] = {GridEntityType.GRID_GRAVITY},
 }
 
----@param rng RNG
----@return Vector
-local function get_gold_vein_size(rng)
-    local stageID = Isaac.GetCurrentStageConfigId()
-
-    local veinWidthScale = 1.25
-    local veinHeightScale = 0.3
-    if stageID == StbType.MINES or stageID == StbType.ASHPIT then
-        veinWidthScale = 1.80
-        veinHeightScale = 0.5
-    end
-
-    local sizeX = ((rng:RandomFloat() + rng:RandomFloat()) * veinWidthScale) + 0.5
-    local sizeY = ((rng:RandomFloat() + rng:RandomFloat()) * veinHeightScale) + 0.3
-
-    return Vector(sizeX, sizeY)
-end
-
----@param virtualRoom VirtualRoom
----@param gridIdx integer
----@param seed integer
----@return boolean
-local function is_grid_idx_in_gold_vein(virtualRoom, gridIdx, seed)
-    local rng = RNG(); rng:SetSeed(seed, 19)
-
-    if rng:RandomInt(10) ~= 0 then
-        return false
-    end
-
-    local roomWidth = virtualRoom.m_Width
-    local roomHeight = virtualRoom.m_Height
-
-    local goldVeinPosition = Vector(rng:RandomFloat() * roomHeight, rng:RandomFloat() * roomHeight)
-    local gridToVeinPosition = goldVeinPosition - Lib.Grid.GetCoordinatesFromGridIdx(gridIdx, roomWidth)
-    local veinSize = get_gold_vein_size(rng)
-    gridToVeinPosition = gridToVeinPosition:Rotated(rng:RandomFloat() * 360.0)
-    gridToVeinPosition = gridToVeinPosition / veinSize
-
-    return gridToVeinPosition:LengthSquared() <= 1.0
-end
-
----@param rng RNG
----@return GridEntityType
-local function select_tinted_rock(rng)
-    if rng:RandomInt(20) == 0 and g_PersistentGameData:Unlocked(Achievement.SUPER_SPECIAL_ROCKS) then
-        return GridEntityType.GRID_ROCK_SS
-    end
-
-    return GridEntityType.GRID_ROCKT
-end
-
----@param virtualRoom VirtualRoom
----@param roomDesc VirtualRoomDescriptor
----@param gridIdx integer
----@param rng RNG
----@return GridEntityType
-local function do_rock_morph(virtualRoom, roomDesc, gridIdx, rng)
-    local foolsRockMorph = g_PersistentGameData:Unlocked(Achievement.FOOLS_GOLD) and is_grid_idx_in_gold_vein(virtualRoom, gridIdx, roomDesc.DecorationSeed)
-
-    local randomNumber = rng:RandomInt(1001)
-    if virtualRoom.m_TintedRockIdx == gridIdx then
-        return select_tinted_rock(rng)
-    end
-
-    if randomNumber < 10 then
-        return GridEntityType.GRID_ROCK_BOMB
-    end
-
-    if foolsRockMorph then
-        return GridEntityType.GRID_ROCK_GOLD
-    end
-
-    return randomNumber < 16 and GridEntityType.GRID_ROCK_ALT or GridEntityType.GRID_ROCK
-end
-
----@param rng RNG
----@return GridPoopVariant?
-local function try_normal_poop_morph(rng)
-    if rng:RandomInt(40) == 0 then
-        return GridPoopVariant.CORN
-    end
-
-    if rng:RandomInt(100) == 0 and g_PersistentGameData:Unlocked(Achievement.CHARMING_POOP) then
-        return GridPoopVariant.CHARMING
-    end
-end
-
-local s_CornPoopOutcomes = {
-    [1] = GridPoopVariant.GOLDEN,
-    [2] = GridPoopVariant.GOLDEN,
-    [5] = GridPoopVariant.RAINBOW,
-    [6] = GridPoopVariant.RAINBOW,
-    [7] = GridPoopVariant.RAINBOW,
-}
-
----@param rng RNG
----@return GridPoopVariant?
-local function try_corn_poop_morph(rng)
-    local randomNumber = rng:RandomInt(40)
-    return s_CornPoopOutcomes[randomNumber]
-end
-
----@param seed integer
----@return GridPoopVariant?
-local function try_meconium_morph(seed)
-    local rng = RNG(); rng:SetSeed(seed, 13)
-    local randomNumber = rng:RandomInt(100)
-
-    if randomNumber <= 32 then
-        return GridPoopVariant.BLACK
-    end
-end
-
----@param variant GridPoopVariant
----@param rng RNG
----@return GridPoopVariant
-local function do_poop_morph(variant, rng)
-    if variant == GridPoopVariant.NORMAL then
-        variant = try_normal_poop_morph(rng) or variant
-    end
-
-    if variant == GridPoopVariant.CORN then
-        variant = try_corn_poop_morph(rng) or variant
-    end
-
-    if g_PlayerManager.AnyoneHasTrinket(TrinketType.TRINKET_MECONIUM) then
-        variant = try_meconium_morph(rng:GetSeed()) or variant
-    end
-
-    return variant
-end
-
 ---@param virtualRoom VirtualRoom
 ---@param roomDesc VirtualRoomDescriptor
 ---@param roomData RoomConfigRoom
@@ -528,68 +273,53 @@ end
 ---@param rng RNG
 ---@param seed integer
 ---@param respawning boolean
----@return SpawnDesc?
-local function build_grid_entity_spawn(virtualRoom, roomDesc, roomData, spawnEntry, gridIdx, rng, seed, respawning)
+---@param spawnCommands SpawnCommands
+local function resolve_grid_entity(virtualRoom, roomDesc, roomData, spawnEntry, gridIdx, rng, seed, respawning, spawnCommands)
     if respawning then
         return
     end
 
     if spawnEntry.Type == StbGridType.RAIL then
-        ---@type SpawnDesc
-        return {spawnType = 0, entityDesc = nil, initRail = true}
+        SpawnCommandsUtils.SetRail(spawnCommands, gridIdx, spawnEntry.Variant)
+        return
     end
 
-    local initRail = false
     if spawnEntry.Type == StbGridType.RAIL_PIT then
-        initRail = true
+        SpawnCommandsUtils.SetRail(spawnCommands, gridIdx, spawnEntry.Variant)
         spawnEntry.Type = StbGridType.PIT
+        spawnEntry.Variant = 0
     end
 
-    ---@type GridSpawnDesc
-    local gridEntityDesc = {
-        type = 0,
-        variant = 0,
-        varData = 0,
-        spawnSeed = 0,
-        spawnFissureSpawner = false,
-        fissureSpawnerSeed = 0,
-        increasePitCount = false,
-        increasePoopCount = false,
-    }
+    local gridType = 0
+    local variant = 0
+    local varData = 0
 
     local convertedGrid = s_StbGridConversion[spawnEntry.Type] or {GridEntityType.GRID_DECORATION}
-    gridEntityDesc.type = convertedGrid[1]
-    gridEntityDesc.variant = convertedGrid[2] or spawnEntry.Variant
-    gridEntityDesc.varData = spawnEntry.Type == StbGridType.TRAP_DOOR and spawnEntry.Variant or 0
+    gridType = convertedGrid[1]
+    variant = convertedGrid[2] or spawnEntry.Variant
+    varData = spawnEntry.Type == StbGridType.TRAP_DOOR and spawnEntry.Variant or 0
 
     if spawnEntry.Type == 3001 then
-        gridEntityDesc.spawnFissureSpawner = true
-        gridEntityDesc.fissureSpawnerSeed = rng:Next()
+        local gridPosition = Lib.Room.GetGridPosition(gridIdx, virtualRoom.m_Width)
+        SpawnCommandsUtils.SpawnEntity(spawnCommands, EntityType.ENTITY_EFFECT, EffectVariant.FISSURE_SPAWNER, spawnEntry.Subtype, rng:Next(), gridPosition, Vector.Zero, nil)
     end
 
-    gridEntityDesc.increasePitCount = gridEntityDesc.type == GridEntityType.GRID_PIT
-    gridEntityDesc.increasePoopCount = gridEntityDesc.type == GridEntityType.GRID_POOP
-
-    if gridEntityDesc.type == GridEntityType.GRID_ROCK_GOLD and not g_PersistentGameData:Unlocked(Achievement.FOOLS_GOLD) then
-        gridEntityDesc.type = GridEntityType.GRID_ROCK
+    if gridType == GridEntityType.GRID_ROCK_GOLD and not g_PersistentGameData:Unlocked(Achievement.FOOLS_GOLD) then
+        gridType = GridEntityType.GRID_ROCK
     end
 
     local mineshaftChase = has_room_config_flags(roomData, 1 << 1)
 
     if spawnEntry.Type == StbGridType.ROCK and not mineshaftChase and spawnEntry.Subtype == 0 then
-        gridEntityDesc.type = do_rock_morph(virtualRoom, roomDesc, gridIdx, rng)
+        gridType = SpawnMorph.RockMorph(virtualRoom, roomDesc, gridIdx, rng)
     end
 
-    if gridEntityDesc.type == GridEntityType.GRID_POOP and not mineshaftChase and spawnEntry.Subtype == 0 then
-        gridEntityDesc.variant = do_poop_morph(gridEntityDesc.variant, rng)
+    if gridType == GridEntityType.GRID_POOP and not mineshaftChase and spawnEntry.Subtype == 0 then
+        variant = SpawnMorph.PoopMorph(variant, rng)
     end
 
-    gridEntityDesc.spawnSeed = seed
-    ---@type SpawnDesc
-    return {spawnType = 2, entityDesc = gridEntityDesc, initRail = initRail}
+    SpawnCommandsUtils.SpawnGridEntity(spawnCommands, gridIdx, gridType, variant, seed, varData)
 end
-
---#endregion
 
 --#endregion
 
@@ -599,34 +329,34 @@ end
 ---@param spawnEntry RoomConfig_Entry
 ---@param seed integer
 ---@param respawning boolean
----@return SpawnDesc?
-local function BuildSpawnDesc(virtualRoom, roomDesc, roomData, gridIdx, spawnEntry, seed, respawning)
+---@param spawnCommands SpawnCommands
+local function SpawnEntity(virtualRoom, roomDesc, roomData, gridIdx, spawnEntry, seed, respawning, spawnCommands)
     local rng = RNG(seed, 35)
     local entityType, variant, subtype = EntityRedirection.FixSpawnEntry(virtualRoom, spawnEntry.Type, spawnEntry.Variant, spawnEntry.Subtype, gridIdx, seed)
 
     ---@type SpawnEntry
     local fixedSpawnEntry = {Type = entityType, Variant = variant, Subtype = subtype}
 
-    if try_block_spawn(roomDesc, roomData, fixedSpawnEntry, respawning) then
+    if block_spawn(roomDesc, roomData, fixedSpawnEntry, respawning) then
         return
     end
 
-    try_morph_spawn(virtualRoom, roomDesc, roomData, fixedSpawnEntry, gridIdx, rng)
+    morph_spawn(virtualRoom, roomDesc, roomData, fixedSpawnEntry, gridIdx, rng)
 
     if fixedSpawnEntry.Type == EntityType.ENTITY_ENVIRONMENT then
         return
     end
 
     if 1 <= fixedSpawnEntry.Type and fixedSpawnEntry.Type <= 999 then
-        return build_entity_spawn(virtualRoom, roomDesc, roomData, fixedSpawnEntry, gridIdx, rng, respawning)
+        resolve_entity(virtualRoom, roomDesc, roomData, fixedSpawnEntry, gridIdx, rng, respawning, spawnCommands)
     else
-        return build_grid_entity_spawn(virtualRoom, roomDesc, roomData, fixedSpawnEntry, gridIdx, rng, seed, respawning)
+        resolve_grid_entity(virtualRoom, roomDesc, roomData, fixedSpawnEntry, gridIdx, rng, seed, respawning, spawnCommands)
     end
 end
 
 --#region Module
 
-SpawnReader.BuildSpawnDesc = BuildSpawnDesc
+SpawnReader.SpawnEntity = SpawnEntity
 
 --#endregion
 

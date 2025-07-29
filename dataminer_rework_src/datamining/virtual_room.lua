@@ -12,6 +12,7 @@ local VirtualShop = require("datamining.virtual_shop")
 local RoomLoader = require("datamining.room_loader")
 local PickupInitializer = require("datamining.pickup_initializer")
 local CustomCallbacks = require("callbacks")
+local SpawnCommandsUtils = require("datamining.spawn_commands")
 
 --#endregion
 
@@ -26,7 +27,7 @@ local CustomCallbacks = require("callbacks")
 ---@field m_TintedRockIdx integer
 ---@field m_BossID BossType | integer
 ---@field m_SecondBossID BossType | integer
----@field m_LayoutData LayoutData
+---@field m_Spawns SpawnCommands
 ---@field m_DamoclesItemSpawned boolean
 ---@field m_DamoclesItems VirtualPickup[] -- List of damocles items specifically since we do not care of keeping track of all initialized entities in the virtual room
 ---@field m_Shop VirtualShop
@@ -34,7 +35,7 @@ local CustomCallbacks = require("callbacks")
 
 ---@class SpawnStrategy
 ---@field SpawnEntity fun(self: SpawnStrategy, virtualRoom: VirtualRoom, entityType: integer, variant: integer, subtype: integer, initSeed: integer) | nil
----@field SpawnGridEntity fun(self: SpawnStrategy, virtualRoom: VirtualRoom, spawn: GridSpawnDesc)?
+---@field SpawnGridEntity fun(self: SpawnStrategy, virtualRoom: VirtualRoom, gridType: GridEntityType | integer, variant: integer, seed: integer, varData: integer) | nil
 
 ---@param virtualRoom VirtualRoom
 local function reset(virtualRoom)
@@ -49,7 +50,7 @@ local function reset(virtualRoom)
     virtualRoom.m_TintedRockIdx = -1
     virtualRoom.m_BossID = 0
     virtualRoom.m_SecondBossID = 0
-    virtualRoom.m_LayoutData = {entities = {}, gridEntities = {}}
+    virtualRoom.m_Spawns = SpawnCommandsUtils.Create()
     virtualRoom.m_DamoclesItemSpawned = false
     virtualRoom.m_DamoclesItems = {}
     virtualRoom.m_Shop = VirtualShop.Create(virtualRoom)
@@ -114,8 +115,10 @@ local function spawn_entities(virtualRoom, spawnStrategy)
         return
     end
 
-    for _, spawn in ipairs(virtualRoom.m_LayoutData.entities) do
-        local entityType, variant, subtype, initSeed = CustomCallbacks.RunPreEntitySpawn(spawn.type, spawn.variant, spawn.subType, spawn.position, Vector(0, 0), nil, spawn.initSeed, virtualRoom)
+    local entities = SpawnCommandsUtils.GetEntitiesSpawnCommands(virtualRoom.m_Spawns)
+    for i = 1, #entities, 1 do
+        local spawn = entities[i]
+        local entityType, variant, subtype, initSeed = CustomCallbacks.RunPreEntitySpawn(spawn.type, spawn.variant, spawn.subtype, spawn.position, Vector(0, 0), nil, spawn.seed, virtualRoom)
         spawnStrategy:SpawnEntity(virtualRoom, entityType, variant, subtype, initSeed)
     end
 end
@@ -127,8 +130,10 @@ local function spawn_grid_entities(virtualRoom, spawnStrategy)
         return
     end
 
-    for _, spawn in ipairs(virtualRoom.m_LayoutData.gridEntities) do
-        spawnStrategy:SpawnGridEntity(virtualRoom, spawn)
+    local entities = SpawnCommandsUtils.GetGridEntitiesSpawnCommands(virtualRoom.m_Spawns)
+    for i = 1, #entities, 1 do
+        local spawn = entities[i]
+        spawnStrategy:SpawnGridEntity(virtualRoom, spawn.type, spawn.variant, spawn.seed, spawn.varData)
     end
 end
 
@@ -171,7 +176,7 @@ end
 local function InitRoom(virtualRoom, roomDesc, roomData, spawnStrategy)
     reset(virtualRoom)
     init_room_metadata(virtualRoom, roomDesc, roomData)
-    virtualRoom.m_LayoutData = RoomLoader.LoadRoomLayoutData(virtualRoom, roomDesc, roomData)
+    virtualRoom.m_Spawns = RoomLoader.GetRoomSpawns(virtualRoom, roomDesc, roomData)
     spawn_layout(virtualRoom, spawnStrategy)
     virtualRoom.m_IsInitialized = true
 end
@@ -191,6 +196,7 @@ end
 --#region Module
 
 VirtualRoom.CreateVirtualRoom = Create
+VirtualRoom.init_room_metadata = init_room_metadata
 VirtualRoom.InitRoom = InitRoom
 VirtualRoom.Update = Update
 

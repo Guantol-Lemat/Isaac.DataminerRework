@@ -9,6 +9,7 @@ local g_Game = Game()
 
 ---@param playerManager PlayerManager
 ---@param collectible CollectibleType | integer
+---@param seed integer
 ---@return {[1]: EntityPlayer?, [2]: integer?}
 local function RandomCollectibleOwner(playerManager, collectible, seed)
     local rng = RNG(seed, 22)
@@ -17,7 +18,7 @@ local function RandomCollectibleOwner(playerManager, collectible, seed)
     local collectibleRNG = nil
 
     for index, player in ipairs(playerManager.GetPlayers()) do
-        if player.Variant ~= 0 or player:HasCollectible(collectible, false) then
+        if player.Variant ~= 0 or not player:HasCollectible(collectible, false) then
             goto continue
         end
 

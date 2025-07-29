@@ -425,7 +425,12 @@ local function get_spawn_boss_id(spawn)
         return 0
     end
 
-    return g_EntityConfig.GetEntity(entry.Type, entry.Variant, entry.Subtype):GetBossID()
+    local entityConfig = g_EntityConfig.GetEntity(entry.Type, entry.Variant, entry.Subtype)
+    if not entityConfig then
+        return 0
+    end
+
+    return entityConfig:GetBossID()
 end
 
 ---@param roomData RoomConfigRoom

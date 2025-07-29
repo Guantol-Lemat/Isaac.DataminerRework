@@ -1,10 +1,6 @@
 ---@class RoomLoader
 local RoomLoader = {}
 
----@class LayoutData
----@field entities EntitySpawnDesc[]
----@field gridEntities GridSpawnDesc[]
-
 --#region Dependencies
 
 local g_Game = Game()
@@ -20,6 +16,8 @@ local Lib = {
 }
 
 local SpawnReader = require("datamining.spawn_reader")
+local SpawnCommandsUtils = require("datamining.spawn_commands")
+local RoomDataMorph = require("datamining.room_systems.room_data_morph")
 
 --#endregion
 
@@ -63,6 +61,7 @@ local function CreateVirtualRoomDescriptor(roomDesc)
 
     local doors = roomDesc.Doors
     for i = 0, DoorSlot.NUM_DOOR_SLOTS - 1, 1 do
+---@diagnostic disable-next-line: assign-type-mismatch
         virtualRoomDesc.Doors[i] = doors[i]
     end
 
@@ -111,93 +110,6 @@ local function should_clear_surprise_miniboss()
     return g_PlayerManager.AnyoneHasTrinket(TrinketType.TRINKET_RIB_OF_GREED)
 end
 
----@param seed integer
----@return boolean
-local function should_apply_broken_glasses_effect(seed)
-    local rng = RNG(seed, 61)
-    return rng:RandomInt(2) < g_PlayerManager.GetTotalTrinketMultiplier(TrinketType.TRINKET_BROKEN_GLASSES)
-end
-
----@param roomDesc VirtualRoomDescriptor
----@param roomData RoomConfigRoom
----@return boolean
-local function should_force_more_options(roomDesc, roomData)
-    if not (roomData.Type == RoomType.ROOM_TREASURE and roomDesc.VisitedCount == 0) then
-        return false
-    end
-
-    local roomSubType = roomData.Subtype
-    if not (roomSubType == 0 or roomSubType == 2) then
-        return false
-    end
-
-    if g_PlayerManager.AnyoneHasCollectible(CollectibleType.COLLECTIBLE_MORE_OPTIONS) then
-        return true
-    end
-
-    if g_PlayerManager.AnyoneHasTrinket(TrinketType.TRINKET_BROKEN_GLASSES) and not Lib.Level.IsAltPath(g_Level) then
-        if should_apply_broken_glasses_effect(roomDesc.SpawnSeed) then
-            return true
-        end
-    end
-
-    return false
-end
-
----@param roomData RoomConfigRoom
----@param seed integer
----@return RoomConfigRoom?
-local function get_more_options_room_data(roomData, seed)
-    local rng = RNG(seed, 1)
-    local subType = roomData.Subtype == 2 and 3 or 1
-
-    local reduceWeight = false -- this would normally be true but since we are predicting we cannot reduce the weight
-    local optionalStage = Isaac.GetCurrentStageConfigId()
-
-    return Lib.RoomConfig.GetRandomRoomFromOptionalStage(g_RoomConfig, rng:Next(), reduceWeight, optionalStage, StbType.SPECIAL_ROOMS, RoomType.ROOM_TREASURE, roomData.Shape, 0, -1, 1, 10, roomData.Doors, subType)
-end
-
-if DATAMINER_DEBUG_MODE then
-    local old_get_more_options_room_data = get_more_options_room_data
-    ---@param roomData RoomConfigRoom
-    ---@param seed integer
-    ---@return RoomConfigRoom?
-    get_more_options_room_data = function(roomData, seed)
-        assert(roomData.Subtype == 0 or roomData.Subtype == 2, "attempted to get more option room on invalid room subtype")
-        return old_get_more_options_room_data(roomData, seed)
-    end
-end
-
----@param roomDesc VirtualRoomDescriptor
----@param roomData RoomConfigRoom
----@return integer
-local function get_surprise_miniboss_id(roomDesc, roomData)
-    if roomData.Type == RoomType.ROOM_DEVIL then
-        return RoomSubType.MINIBOSS_KRAMPUS
-    end
-
-    local greedSubtype = roomDesc.m_GreedSubtype
-    if greedSubtype ~= 0 then
-        return greedSubtype
-    end
-
-    greedSubtype = g_Game:GetStateFlag(GameStateFlag.STATE_GREED_SPAWNED) and RoomSubType.MINIBOSS_SUPER_GREED or RoomSubType.MINIBOSS_GREED
-    return greedSubtype
-end
-
----@param roomDesc VirtualRoomDescriptor
----@param roomData RoomConfigRoom
----@param seed integer
----@return RoomConfigRoom?
-local function get_random_surprise_miniboss_data(roomDesc, roomData, seed)
-    local rng = RNG(seed, 1)
-    local roomSubType = get_surprise_miniboss_id(roomDesc, roomData)
-
-    local reduceWeight = false -- this would normally be true but since we are predicting we cannot reduce the weight
----@diagnostic disable-next-line: undefined-field
-    return g_RoomConfig.GetRandomRoom(rng:Next(), reduceWeight, StbType.SPECIAL_ROOMS, RoomType.ROOM_MINIBOSS, roomData.Shape, 0, -1, 1, 1, roomData.Doors, roomSubType, 0)
-end
-
 ---@param roomDesc VirtualRoomDescriptor
 ---@return RoomConfigRoom?
 local function get_surprise_miniboss_data(roomDesc)
@@ -206,7 +118,7 @@ local function get_surprise_miniboss_data(roomDesc)
         return overrideData
     end
 
-    return get_random_surprise_miniboss_data(roomDesc, roomDesc.Data, roomDesc.SpawnSeed)
+    return RoomDataMorph.GetSurpriseMinibossData(roomDesc, roomDesc.Data, roomDesc.SpawnSeed)
 end
 
 ---@param roomDesc VirtualRoomDescriptor
@@ -217,8 +129,8 @@ local function InitRoomData(roomDesc)
     end
 
     local roomData = roomDesc.Data
-    if roomData and should_force_more_options(roomDesc, roomData) then
-        roomData = get_more_options_room_data(roomData, roomDesc.SpawnSeed) or roomData
+    if roomData and RoomDataMorph.ShouldForceMoreOptions(roomDesc, roomData) then
+        roomData = RoomDataMorph.GetMoreOptionsRoomData(roomData, roomDesc.SpawnSeed) or roomData
         roomDesc.Data = roomData
     end
 
@@ -256,9 +168,9 @@ end
 ---@param roomDesc VirtualRoomDescriptor
 ---@param roomData RoomConfigRoom
 ---@param spawn RoomConfig_Spawn
+---@param spawnCommands SpawnCommands
 ---@param rng RNG
----@return SpawnDesc?
-local function get_spawn_desc(virtualRoom, roomDesc, roomData, spawn, rng)
+local function try_spawn_entity(virtualRoom, roomDesc, roomData, spawn, rng, spawnCommands)
     local randomFloat = rng:RandomFloat()
     if spawn.EntryCount == 0 then
         return
@@ -270,38 +182,28 @@ local function get_spawn_desc(virtualRoom, roomDesc, roomData, spawn, rng)
         return
     end
 
-    return SpawnReader.BuildSpawnDesc(virtualRoom, roomDesc, roomData, gridIdx, spawnEntry, rng:GetSeed(), false)
+    SpawnReader.SpawnEntity(virtualRoom, roomDesc, roomData, gridIdx, spawnEntry, rng:GetSeed(), false, spawnCommands)
 end
 
 ---@param virtualRoom VirtualRoom
 ---@param roomDesc VirtualRoomDescriptor
 ---@param roomData RoomConfigRoom
----@return LayoutData
-local function LoadRoomLayoutData(virtualRoom, roomDesc, roomData)
-    ---@type LayoutData
-    local layoutData = {entities = {}, gridEntities = {}}
-
+---@return SpawnCommands
+local function GetRoomSpawns(virtualRoom, roomDesc, roomData)
     local rng = RNG(roomDesc.SpawnSeed, 11)
     local spawns = roomData.Spawns
+    local spawnCommands = SpawnCommandsUtils.Create()
 
     for i = 0, roomData.SpawnCount - 1, 1 do
-        local spawnDesc = get_spawn_desc(virtualRoom, roomDesc, roomData, spawns:Get(i), rng)
-        if not spawnDesc then
-            goto continue
-        end
-
-        if spawnDesc.spawnType == 1 then
-            table.insert(layoutData.entities, spawnDesc.entityDesc)
-        elseif spawnDesc.spawnType == 2 then
-            table.insert(layoutData.gridEntities, spawnDesc.entityDesc)
-        end
-        ::continue::
+        try_spawn_entity(virtualRoom, roomDesc, roomData, spawns:Get(i), rng, spawnCommands)
     end
 
-    return layoutData
+    return spawnCommands
 end
 
 --#endregion
+
+--#region Devil/Angel Room Initialization
 
 ---@param rng RNG
 ---@param forceAngel boolean
@@ -480,6 +382,8 @@ local function InitializeDevilAngelRoom(virtualRoomDesc, forceAngel, forceDevil,
     return virtualRoomDesc
 end
 
+--#endregion
+
 ---@param door GridEntityDoor
 ---@return VirtualRoomDescriptor
 local function ResolveDoorTarget(door)
@@ -501,7 +405,7 @@ RoomLoader.CreateVirtualRoomDescriptor = CreateVirtualRoomDescriptor
 RoomLoader.InitSeeds = InitSeeds
 RoomLoader.InitRoomData = InitRoomData
 RoomLoader.InitializeDevilAngelRoom = InitializeDevilAngelRoom
-RoomLoader.LoadRoomLayoutData = LoadRoomLayoutData
+RoomLoader.GetRoomSpawns = GetRoomSpawns
 RoomLoader.ResolveDoorTarget = ResolveDoorTarget
 
 if DATAMINER_DEBUG_MODE then
