@@ -942,7 +942,8 @@ end
 
 ---@class ShopItemData : ShopPickup
 ---@field shopItemIdx integer
----@field price integer
+---@field price PickupPrice | integer
+---@field originalPrice PickupPrice | integer
 
 ---@param shop VirtualShop
 ---@param seed integer
@@ -954,8 +955,8 @@ local function MakeShopItem(shop, seed)
 
     local shopItemIdx = get_next_shop_item_idx(shop)
     local shopPickup = GetShopItem(shop, shopItemIdx, seed)
-    local price = GetShopItemPrice(shop, shopPickup.variant, shopPickup.subtype, shopItemIdx)
-    price = TryGetShopDiscount(shop, shopItemIdx, price)
+    local originalPrice = GetShopItemPrice(shop, shopPickup.variant, shopPickup.subtype, shopItemIdx)
+    local price = TryGetShopDiscount(shop, shopItemIdx, originalPrice)
 
     if #shop.m_ShopItemIdxDeque == 0 then
         increase_shop_item_idx(shop)
@@ -967,6 +968,7 @@ local function MakeShopItem(shop, seed)
         variant = shopPickup.variant,
         subtype = shopPickup.subtype,
         price = price,
+        originalPrice = originalPrice,
     }
 end
 

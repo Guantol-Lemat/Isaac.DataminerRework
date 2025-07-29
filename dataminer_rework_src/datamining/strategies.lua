@@ -15,9 +15,9 @@ local PickupInitializer = require("datamining.pickup_initializer")
 ---@class DataminedCollectibleData
 ---@field collectibleType CollectibleType | integer
 ---@field price PickupPrice | integer
+---@field originalPrice PickupPrice | integer
 
 ---@class DataminedCollectible
----@field currentCollectible DataminedCollectibleData
 ---@field cycle DataminedCollectibleData[]
 ---@field corruptedData boolean
 
@@ -56,15 +56,17 @@ end
 ---@return DataminedCollectibleData
 local function read_collectible_data(virtualPickup)
     local price = virtualPickup.Price
+    local originalPrice = virtualPickup.m_OriginalPrice
     -- Assuming AutoUpdatePrice is always enabled, might need to update this if we wanna have ultra specific mod compatibility
     if price ~= 0 then
-        price = PickupInitializer.GetShopItemPrice(virtualPickup.m_Room.m_Shop, virtualPickup.Variant, virtualPickup.SubType, virtualPickup.ShopItemId)
+        price, originalPrice = PickupInitializer.GetShopItemPrice(virtualPickup.m_Room.m_Shop, virtualPickup.Variant, virtualPickup.SubType, virtualPickup.ShopItemId)
     end
 
     ---@type DataminedCollectibleData
     local collectible = {
         collectibleType = virtualPickup.SubType,
         price = price,
+        originalPrice = originalPrice,
     }
 
     return collectible
@@ -73,11 +75,11 @@ end
 ---@param virtualPickup VirtualPickup
 ---@return DataminedCollectible
 local function read_datamined_collectible(virtualPickup)
-    local baseCollectible = read_collectible_data(virtualPickup)
+    local cycle = {}
+    table.insert(cycle, read_collectible_data(virtualPickup))
     local corruptedData = (virtualPickup.m_Flags & EntityFlag.FLAG_GLITCH) ~= 0
 
     local originalSubtype = virtualPickup.SubType
-    local cycle = {}
     -- I'm not going through the whole Morph procedure, since modifiers are ignored and such
     for _, collectibleCycle in ipairs(virtualPickup.m_OptionsCycles) do
         virtualPickup.SubType = collectibleCycle
@@ -87,7 +89,6 @@ local function read_datamined_collectible(virtualPickup)
 
     ---@type DataminedCollectible
     local collectible = {
-        currentCollectible = baseCollectible,
         cycle = cycle,
         corruptedData = corruptedData,
     }
@@ -126,10 +127,8 @@ local function print_collectibles(collectibles)
     print("Collectibles:")
     for _, collectible in ipairs(collectibles) do
         print(string.format("Data: Num Cycles: %d, Corrupted Data: %s", #collectible.cycle, tostring(collectible.corruptedData)))
-        local currentCollectible = collectible.currentCollectible
-        print_collectible_data(currentCollectible, "Collectible")
         for _, optionCycle in ipairs(collectible.cycle) do
-            print_collectible_data(optionCycle, "Cycle")
+            print_collectible_data(optionCycle, "Collectible")
         end
     end
 end

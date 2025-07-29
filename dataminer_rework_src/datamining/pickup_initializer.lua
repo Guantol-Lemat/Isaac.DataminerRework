@@ -36,6 +36,7 @@ local CustomCallbacks = require("callbacks")
 ---@field m_DropRNG RNG
 ---@field m_Flags EntityFlag | integer
 ---@field Price PickupPrice | integer
+---@field m_OriginalPrice PickupPrice | integer
 ---@field ShopItemId integer
 ---@field m_OptionsCycles CollectibleType[] | integer[]
 ---@field m_FlipCollectible CollectibleType | integer | nil
@@ -53,6 +54,7 @@ local function CreateVirtualPickup()
         m_DropRNG = RNG(),
         m_Flags = 0,
         Price = 0,
+        m_OriginalPrice = 0,
         ShopItemId = 0,
         m_OptionsCycles = {},
         m_FlipCollectible = nil,
@@ -1130,11 +1132,11 @@ end
 ---@param variant PickupVariant | integer
 ---@param subtype integer
 ---@param shopItemId integer
----@return integer|PickupPrice
+---@return integer|PickupPrice price, integer|PickupPrice originalPrice
 local function GetShopItemPrice(shop, variant, subtype, shopItemId)
-    local price = Shop.GetShopItemPrice(shop, variant, subtype, shopItemId)
-    price = Shop.TryGetShopDiscount(shop, shopItemId, price)
-    return price
+    local originalPrice = Shop.GetShopItemPrice(shop, variant, subtype, shopItemId)
+    local price = Shop.TryGetShopDiscount(shop, shopItemId, originalPrice)
+    return price, originalPrice
 end
 
 ---@param virtualPickup VirtualPickup
@@ -1154,7 +1156,7 @@ local function make_shop_item(virtualPickup, virtualRoom, seed)
     ---@cast shopSubtype integer
     shopItemData.variant = shopVariant
     shopItemData.subtype = shopSubtype
-    shopItemData.price = GetShopItemPrice(virtualRoom.m_Shop, shopItemData.variant, shopItemData.subtype, virtualPickup.ShopItemId)
+    shopItemData.price, shopItemData.originalPrice = GetShopItemPrice(virtualRoom.m_Shop, shopItemData.variant, shopItemData.subtype, virtualPickup.ShopItemId)
     return shopItemData
 end
 
