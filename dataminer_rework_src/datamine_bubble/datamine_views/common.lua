@@ -16,10 +16,6 @@ local function RenderViewComponent(viewComponent, frameData, position)
     sprite.Color = frameData.color
     sprite.Scale = scale
 
-    --print("Sprite FilePath", sprite:GetFilename())
-    --print("Sprite Frame", sprite:GetFrame())
-    --print("Sprite Color", sprite.Color)
-    --print("Sprite Animation:", sprite:GetAnimation())
     sprite:Render(position + relativePosition)
 end
 
