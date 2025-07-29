@@ -1,3 +1,4 @@
 .vscode
 .luarc.json
 disable.it
+*.png
