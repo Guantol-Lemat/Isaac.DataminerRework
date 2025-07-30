@@ -71,6 +71,60 @@ if DATAMINER_DEBUG_MODE then
     end
 end
 
+local s_GreedShopLevel = {
+    [LevelStage.STAGE1_GREED] = function () return 1 end,
+    [LevelStage.STAGE2_GREED] = function () return 2 end,
+    [LevelStage.STAGE3_GREED] = function () return 3 end,
+    [LevelStage.STAGE4_GREED] = function () return 4 end,
+    [LevelStage.STAGE5_GREED] = function () return 5 end,
+    ---@param virtualRoom VirtualRoom
+    [LevelStage.STAGE6_GREED] = function (virtualRoom) return virtualRoom.m_RoomType == RoomType.ROOM_DEFAULT and 5 or 1 end
+}
+
+---@param virtualRoom VirtualRoom
+---@return integer?
+local function get_greed_shop_level(virtualRoom)
+    local ShopLevelFunction = s_GreedShopLevel[g_Level:GetStage()]
+    if ShopLevelFunction then
+        return ShopLevelFunction(virtualRoom)
+    end
+end
+
+---@return integer
+local function get_shop_level()
+    if g_PersistentGameData:Unlocked(Achievement.STORE_UPGRADE_LV4) then
+        return 5
+    end
+
+    if g_PersistentGameData:Unlocked(Achievement.STORE_UPGRADE_LV3) then
+        return 4
+    end
+
+    if g_PersistentGameData:Unlocked(Achievement.STORE_UPGRADE_LV2) then
+        return 3
+    end
+
+    if g_PersistentGameData:Unlocked(Achievement.STORE_UPGRADE_LV1) then
+        return 2
+    end
+
+    return 1
+end
+
+---@param shop VirtualShop
+local function OnRoomInit(shop)
+    if g_Game:IsGreedMode() then
+        local shopLevel = get_greed_shop_level(shop.m_Room)
+        if shopLevel then
+            shop.m_ShopLevel = shopLevel
+        end
+    else
+        shop.m_ShopLevel = get_shop_level()
+    end
+
+    shop.m_ShopItemIdxDeque = {}
+end
+
 ---@param roomData RoomConfigRoom
 ---@return boolean
 local function is_keeper_shop(roomData)
@@ -975,6 +1029,7 @@ end
 --#region Module
 
 VirtualShop.Create = CreateVirtualShop
+VirtualShop.OnRoomInit = OnRoomInit
 VirtualShop.GetShopItem = GetShopItem
 VirtualShop.GetShopItemPrice = GetShopItemPrice
 VirtualShop.TryGetShopDiscount = TryGetShopDiscount

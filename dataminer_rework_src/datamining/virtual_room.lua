@@ -105,6 +105,8 @@ local function init_room_metadata(virtualRoom, roomDesc, roomData)
         virtualRoom.m_BossID, virtualRoom.m_SecondBossID = Lib.Room.GetBossID(roomDesc.Data)
     end
 
+    VirtualShop.OnRoomInit(virtualRoom.m_Shop)
+
     virtualRoom.m_RoomIdx = roomDesc.SafeGridIndex
 end
 
