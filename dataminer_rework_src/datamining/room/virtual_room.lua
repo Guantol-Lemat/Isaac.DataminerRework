@@ -8,11 +8,11 @@ local Lib = {
     ItemPool = require("lib.itempool")
 }
 
-local VirtualShop = require("datamining.virtual_shop")
-local RoomLoader = require("datamining.room_loader")
-local PickupInitializer = require("datamining.pickup_initializer")
+local VirtualShop = require("datamining.room.virtual_shop")
+local RoomLoader = require("datamining.room.room_loader")
+local PickupInitializer = require("datamining.entity.pickup_initializer")
 local CustomCallbacks = require("callbacks")
-local SpawnCommandsUtils = require("datamining.spawn_commands")
+local SpawnCommandsUtils = require("datamining.entity.spawn_commands")
 
 --#endregion
 

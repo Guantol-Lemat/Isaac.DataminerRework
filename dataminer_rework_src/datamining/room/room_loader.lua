@@ -15,9 +15,9 @@ local Lib = {
     RoomConfig = require("lib.room_config")
 }
 
-local SpawnReader = require("datamining.spawn_reader")
-local SpawnCommandsUtils = require("datamining.spawn_commands")
-local RoomDataMorph = require("datamining.room_systems.room_data_morph")
+local SpawnReader = require("datamining.entity.spawn_reader")
+local SpawnCommandsUtils = require("datamining.entity.spawn_commands")
+local RoomDataMorph = require("datamining.room.room_systems.room_data_morph")
 
 --#endregion
 

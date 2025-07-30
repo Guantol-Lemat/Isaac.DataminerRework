@@ -8,7 +8,7 @@ local g_ItemConfig = Isaac.GetItemConfig()
 local Lib = {
     ItemConfig = require("lib.item_config"),
 }
-local PickupInitializer = require("datamining.pickup_initializer")
+local PickupInitializer = require("datamining.entity.pickup_initializer")
 
 --#endregion
 

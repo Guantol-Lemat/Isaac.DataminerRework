@@ -19,8 +19,8 @@ local Lib = {
     EntityPickup = require("lib.entity_pickup"),
 }
 
-local EntityRedirection = require("datamining.entity_redirection")
-local VirtualRoomQueries = require("datamining.virtual_room_queries")
+local EntityRedirection = require("datamining.entity.entity_redirection")
+local VirtualRoomQueries = require("datamining.room.virtual_room_queries")
 
 --#endregion
 

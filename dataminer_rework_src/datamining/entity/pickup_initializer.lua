@@ -20,9 +20,9 @@ local g_PlayerManager = PlayerManager
 local g_ItemConfig = Isaac.GetItemConfig()
 local g_PersistentGameData = Isaac.GetPersistentGameData()
 
-local EntityRedirection = require("datamining.entity_redirection")
-local VirtualRoomQueries = require("datamining.virtual_room_queries")
-local Shop = require("datamining.virtual_shop")
+local EntityRedirection = require("datamining.entity.entity_redirection")
+local VirtualRoomQueries = require("datamining.room.virtual_room_queries")
+local Shop = require("datamining.room.virtual_shop")
 local CustomCallbacks = require("callbacks")
 
 --#endregion

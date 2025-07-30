@@ -22,9 +22,9 @@ local Lib = {
     Room = require("lib.room"),
 }
 
-local EntityRedirection = require("datamining.entity_redirection")
+local EntityRedirection = require("datamining.entity.entity_redirection")
 local SpawnMorph = require("datamining.spawn_systems.spawn_morph")
-local SpawnCommandsUtils = require("datamining.spawn_commands")
+local SpawnCommandsUtils = require("datamining.entity.spawn_commands")
 
 --#endregion
 

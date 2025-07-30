@@ -5,8 +5,8 @@ local Dataminer = {}
 
 local g_Level = Game():GetLevel()
 
-local VirtualRoom = require("datamining.virtual_room")
-local RoomLoader = require("datamining.room_loader")
+local VirtualRoom = require("datamining.room.virtual_room")
+local RoomLoader = require("datamining.room.room_loader")
 local DataminingStrategies = require("datamining.strategies")
 
 --#region
@@ -95,6 +95,7 @@ end
 
 --#region Module
 
+Dataminer.datamine_room_from_door = datamine_room_from_door
 Dataminer.datamine_room = datamine_room
 Dataminer.build_strategy = build_strategy
 Dataminer.trigger_datamine = trigger_datamine
