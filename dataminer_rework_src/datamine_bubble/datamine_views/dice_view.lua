@@ -15,7 +15,7 @@ end
 
 local RenderView = CommonViewUtils.RenderViewComponent
 
----@param diceFloorSubtype DiceFloorSubtype
+---@param diceFloorSubtype Enums.eDiceFloorSubtype
 ---@return DiceDatamineViewComponent
 local function CreateView(diceFloorSubtype)
     ---@type DiceDatamineViewComponent

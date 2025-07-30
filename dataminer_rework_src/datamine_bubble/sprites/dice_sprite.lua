@@ -3,8 +3,8 @@ local DiceSpriteUtils = {}
 
 --#region Dependencies
 
-local Enums = require("lib.enums")
-local DiceFloorSubtype = Enums.DiceFloorSubtype
+local Enums = require("enums")
+local DiceFloorSubtype = Enums.eDiceFloorSubtype
 
 --#endregion
 
@@ -31,7 +31,7 @@ local function CreateSprite()
 end
 
 ---@param sprite Sprite
----@param diceFloorSubtype DiceFloorSubtype
+---@param diceFloorSubtype Enums.eDiceFloorSubtype
 local function InitSprite(sprite, diceFloorSubtype)
     sprite:SetAnimation(sprite:GetDefaultAnimation(), true)
     sprite:SetFrame(s_Frames[diceFloorSubtype] or s_Frames[DEFAULT_DICE_FLOOR])
