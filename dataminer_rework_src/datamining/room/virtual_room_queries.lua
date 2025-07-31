@@ -51,8 +51,16 @@ local function GetSeededCollectible(virtualRoom, seed, advanceRNG)
     return g_ItemPool:GetCollectible(pool, false, seed, CollectibleType.COLLECTIBLE_NULL)
 end
 
+---@param virtualRoom VirtualRoom
+---@return integer
 local function GetFrameCount(virtualRoom)
     return 0
+end
+
+---@param virtualRoom VirtualRoom
+---@return Vector
+local function GetCenterPos(virtualRoom)
+    return Vector(0, 0)
 end
 
 --#region Module
@@ -61,6 +69,7 @@ VirtualRoomQueries.SetItemPool = SetItemPool
 VirtualRoomQueries.GetPoolForRoom = GetPoolForRoom
 VirtualRoomQueries.GetSeededCollectible = GetSeededCollectible
 VirtualRoomQueries.GetFrameCount = GetFrameCount
+VirtualRoomQueries.GetCenterPos = GetCenterPos
 
 --#endregion
 

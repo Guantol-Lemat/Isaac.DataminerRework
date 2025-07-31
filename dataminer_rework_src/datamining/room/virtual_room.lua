@@ -11,8 +11,9 @@ local Lib = {
 local VirtualShop = require("datamining.room.virtual_shop")
 local RoomLoader = require("datamining.room.room_loader")
 local PickupInitializer = require("datamining.entity.pickup_initializer")
-local CustomCallbacks = require("callbacks")
 local SpawnCommandsUtils = require("datamining.entity.spawn_commands")
+local OnRoomFirstVisit = require("datamining.room.room_systems.on_first_visit")
+local CustomCallbacks = require("callbacks")
 
 --#endregion
 
@@ -165,6 +166,13 @@ local function handle_damocles_items(virtualRoom, spawnStrategy)
 end
 
 ---@param virtualRoom VirtualRoom
+local function on_first_visit(virtualRoom)
+    if virtualRoom.m_RoomType == RoomType.ROOM_DICE then
+        OnRoomFirstVisit.SpawnDiceFloor(virtualRoom, virtualRoom.m_Spawns)
+    end
+end
+
+---@param virtualRoom VirtualRoom
 ---@param spawnResolver SpawnStrategy
 local function spawn_layout(virtualRoom, spawnResolver)
     spawn_entities(virtualRoom, spawnResolver)
@@ -179,8 +187,13 @@ local function InitRoom(virtualRoom, roomDesc, roomData, spawnStrategy)
     reset(virtualRoom)
     init_room_metadata(virtualRoom, roomDesc, roomData)
     virtualRoom.m_Spawns = RoomLoader.GetRoomSpawns(virtualRoom, roomDesc, roomData)
-    spawn_layout(virtualRoom, spawnStrategy)
     virtualRoom.m_IsInitialized = true
+
+    if virtualRoom.m_RoomDescriptor.VisitedCount == 0 then
+        on_first_visit(virtualRoom)
+    end
+
+    spawn_layout(virtualRoom, spawnStrategy)
 end
 
 ---@param virtualRoom VirtualRoom
